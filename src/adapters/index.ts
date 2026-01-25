@@ -15,3 +15,12 @@ export {
   getBrokerEnvVars,
   createConfigFromEnv,
 } from './broker-factory.js';
+
+// Tradier adapter
+export { TradierAdapter, createTradierAdapter } from './tradier/index.js';
+
+// Register Tradier adapter with factory
+import { registerBrokerAdapter } from './broker-factory.js';
+import { createTradierAdapter } from './tradier/index.js';
+
+registerBrokerAdapter('tradier', createTradierAdapter);

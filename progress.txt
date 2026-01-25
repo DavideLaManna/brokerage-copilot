@@ -99,3 +99,49 @@
 - To add a new broker's OAuth support, register a token refresh handler using registerTokenRefreshHandler()
 - The maskSecret() function should be used when logging any credential-related info
 - Remember to call clearMemory() on shutdown to clear sensitive data from memory
+
+## 2026-01-25 - US-004: Connect to broker (read-only, single broker MVP) (COMPLETED)
+
+### What was done:
+- Created src/adapters/tradier/ with full Tradier broker adapter implementation
+  - TradierAdapter class implementing BrokerAdapter interface
+  - Token-based authentication using Tradier access tokens
+  - Account summary retrieval (balance, buying power, cash, P&L)
+  - Position fetching with equity and option support
+  - Open orders retrieval with status filtering
+  - Market data quotes with bid/ask/mid/last/volume
+  - Option chain retrieval with Greeks (delta, gamma, theta, vega, IV)
+  - Order placement and cancellation support
+  - Connection validation against user profile
+  - Disconnect functionality that clears sensitive data
+- Created src/services/broker-connection.ts with BrokerConnectionService
+  - High-level connection management integrating SecretManager
+  - Connect/disconnect functionality with state tracking
+  - Automatic credential-to-config conversion
+  - Connection state persistence (connected, lastError, accountSummary)
+  - Graceful error handling with user-friendly messages
+  - Support for multiple simultaneous broker connections
+- Integrated Tradier adapter with factory pattern
+  - Auto-registered in src/adapters/index.ts
+  - Available via createBrokerAdapter({ brokerType: 'tradier', ... })
+- Error handling improvements
+  - AuthenticationError for 401/403 responses
+  - RateLimitError for 429 with retry-after support
+  - User-friendly error messages via toUserMessage()
+- Added 42 new tests (src/adapters/tradier/tradier-adapter.test.ts, src/services/broker-connection.test.ts)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (79 tests total)
+
+### Notes for next developer:
+- The project is now ready for US-009 (Risk configuration storage) or US-005 (Fetch and display positions)
+- To use the Tradier adapter:
+  1. Store credentials: `secretManager.setCredentials({ brokerType: 'tradier', oauth: { accessToken: '...' }, accountId: '...' })`
+  2. Connect: `const result = await connectionService.connect('tradier')`
+  3. Get adapter: `const adapter = connectionService.getAdapter('tradier')`
+  4. Fetch data: `const positions = await adapter.getPositions()`
+- The Tradier sandbox environment is used by default (set sandbox: false for production)
+- Environment variables for Tradier: TRADIER_ACCESS_TOKEN, TRADIER_ACCOUNT_ID, TRADIER_BASE_URL
+- All API requests include proper error handling for auth, rate limits, and service errors
+- The BrokerConnectionService maintains connection state and handles reconnection logic
