@@ -57,3 +57,45 @@
 - Error types and rate limit configs are ready for use in adapter implementations
 - The factory pattern supports dynamic adapter registration for future broker additions
 - All broker configs can be loaded from environment variables using createConfigFromEnv()
+
+## 2026-01-25 - US-003: Secure credential storage (COMPLETED)
+
+### What was done:
+- Created src/storage/encryption.ts with AES-256-GCM encryption utilities
+  - deriveKey() using PBKDF2 with 100,000 iterations for key derivation
+  - encrypt()/decrypt() for AES-256-GCM authenticated encryption
+  - generateSecureRandom() for cryptographically secure random strings
+  - hashValue() for SHA-256 hashing (audit logs)
+  - secureCompare() for constant-time string comparison
+  - maskSecret() for safe logging (e.g., "PK****56")
+- Created src/storage/token-refresh.ts for OAuth token management
+  - OAuthTokens interface for storing access/refresh tokens with expiry
+  - shouldRefreshToken() to check if token needs refresh (5-min buffer)
+  - calculateExpiresAt() to convert expires_in to timestamp
+  - Token refresh handler registry for broker-specific refresh logic
+  - OAuth configs for Tradier (only OAuth-based broker currently)
+- Created src/storage/secrets.ts with SecretManager class
+  - Encrypted credential storage on disk (.secrets/credentials.json)
+  - Per-broker credential validation (Alpaca, Tradier, tastytrade, IBKR)
+  - Auto token refresh for OAuth providers
+  - getSafeCredentialInfo() for logging without exposing secrets
+  - importCredentialsFromEnv() for one-time migration from env vars
+  - createSecretManagerFromEnv() for initialization from env vars
+  - clearMemory() for secure shutdown
+- Created src/storage/index.ts barrel exports
+- Created src/storage/secrets.test.ts with 22 tests
+- Updated README.md with comprehensive secure credential setup documentation
+- Updated .env.example with SECRETS_MASTER_PASSWORD placeholder
+- Updated .gitignore to exclude .secrets/ and .test-secrets/ directories
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (37 tests total)
+
+### Notes for next developer:
+- The project is now ready for US-004 (Connect to broker - read-only, single broker MVP)
+- SecretManager can be initialized with createSecretManagerFromEnv()
+- Credentials can be imported from env vars once, then stored encrypted
+- To add a new broker's OAuth support, register a token refresh handler using registerTokenRefreshHandler()
+- The maskSecret() function should be used when logging any credential-related info
+- Remember to call clearMemory() on shutdown to clear sensitive data from memory

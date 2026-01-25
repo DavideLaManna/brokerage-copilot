@@ -125,6 +125,82 @@ Each adapter implements:
    npm run dev
    ```
 
+## Secure Credential Storage
+
+The Options Trading Copilot uses AES-256-GCM encryption to securely store broker API credentials. Credentials are **never logged** and are stored in an encrypted file on disk.
+
+### Initial Setup
+
+1. **Set Master Password**: Add the following to your `.env` file:
+   ```bash
+   SECRETS_MASTER_PASSWORD=your-secure-password-here
+   ```
+   The master password must be at least 8 characters. Use a strong, unique password.
+
+2. **Configure Broker Credentials**: You can either:
+
+   **Option A: Import from environment variables (recommended for initial setup)**
+
+   Set your broker credentials in `.env` as shown in `.env.example`, then the system will automatically import and encrypt them on first run.
+
+   **Option B: Programmatic setup**
+
+   ```typescript
+   import { createSecretManagerFromEnv } from './storage';
+
+   const secretManager = await createSecretManagerFromEnv();
+
+   // Store Alpaca credentials
+   await secretManager.setCredentials({
+     brokerType: 'alpaca',
+     apiKey: 'your-api-key',
+     apiSecret: 'your-api-secret',
+     sandbox: true, // Use paper trading
+   });
+
+   // Store Tradier credentials (OAuth-based)
+   await secretManager.setCredentials({
+     brokerType: 'tradier',
+     oauth: {
+       accessToken: 'your-access-token',
+       refreshToken: 'your-refresh-token',
+       expiresAt: Date.now() + 86400000, // 24 hours
+     },
+     accountId: 'your-account-id',
+   });
+   ```
+
+### Credential Validation
+
+Credentials are validated on startup and whenever they are stored:
+- **Alpaca**: Requires `apiKey` and `apiSecret`
+- **Tradier**: Requires `accessToken` (OAuth) or `apiKey`
+- **tastytrade**: Requires `apiKey` (username) and `apiSecret` (password)
+- **IBKR**: Requires `baseUrl` (TWS/Gateway URL)
+
+### OAuth Token Refresh
+
+For OAuth-based brokers (like Tradier), the system automatically handles token refresh:
+- Tokens are refreshed 5 minutes before expiration
+- Refresh tokens are stored encrypted alongside access tokens
+- Failed refreshes are logged (without exposing secrets)
+
+### Security Best Practices
+
+1. **Never commit secrets**: The `.secrets/` directory is excluded from git
+2. **Use environment variables for the master password**: Don't hardcode it
+3. **Rotate credentials regularly**: Update broker API keys periodically
+4. **Clear memory on shutdown**: Call `secretManager.clearMemory()` when done
+
+### Safe Logging
+
+To log credential information without exposing secrets:
+```typescript
+const safeInfo = secretManager.getSafeCredentialInfo('alpaca');
+console.log('Credential info:', safeInfo);
+// Output: { brokerType: 'alpaca', hasApiKey: true, apiKeyPrefix: 'PK****56', ... }
+```
+
 ## Development
 
 - TypeScript with strict mode enabled
