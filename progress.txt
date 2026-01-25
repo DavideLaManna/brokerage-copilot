@@ -21,3 +21,39 @@
 - Next priority should be defining the TypeScript interfaces for broker operations
 - Consider starting with Tradier as the MVP broker (recommended in original PRD discussion)
 - The directory structure follows the architecture diagram in README.md
+
+## 2026-01-25 - US-002: Broker adapter interface (COMPLETED)
+
+### What was done:
+- Created src/types/broker.ts with complete BrokerAdapter interface
+  - Core types: OptionType, OrderSide, OrderType, TimeInForce, OrderStatus, BrokerType
+  - Data types: AccountSummary, Position, OptionDetails, Greeks, Order, OrderRequest, Quote, OptionContract, OptionChain
+  - BrokerAdapter interface with all required methods: getAccountSummary(), getPositions(), getOpenOrders(), getOrder(), placeOrder(), cancelOrder(), getQuote(), getOptionChain(), validateConnection(), disconnect()
+  - Zod schemas for runtime validation (AccountSummarySchema, PositionSchema, OrderRequestSchema, etc.)
+- Created src/types/errors.ts with standardized error types
+  - BrokerErrorCode enum covering auth, connection, rate limit, order, data, and account errors
+  - BrokerError base class with retryable flag and user-friendly message generation
+  - Specialized errors: AuthenticationError, RateLimitError, OrderError
+  - Type guards: isBrokerError(), isRetryableError()
+- Created src/types/rate-limits.ts documenting broker rate limits
+  - Rate limit configs for Alpaca (200/min), Tradier (120/min), tastytrade (60/min), IBKR (50/min)
+  - Endpoint-specific overrides for market data endpoints
+  - Utility functions: getRateLimitConfig(), calculateRequestDelay(), createRateLimiterState()
+- Created src/adapters/broker-factory.ts with factory pattern
+  - registerBrokerAdapter() for adapter registration
+  - createBrokerAdapter() for adapter instantiation with connection validation
+  - validateBrokerConfig() for broker-specific config validation
+  - createConfigFromEnv() for loading config from environment variables
+- Created index.ts barrel exports for types and adapters
+- Created src/adapters/broker-factory.test.ts with 14 tests covering factory and error functionality
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (15 tests total)
+
+### Notes for next developer:
+- The project is now ready for US-003 (Secure credential storage)
+- The BrokerAdapter interface is complete - next step is implementing a concrete adapter (recommend Tradier for MVP)
+- Error types and rate limit configs are ready for use in adapter implementations
+- The factory pattern supports dynamic adapter registration for future broker additions
+- All broker configs can be loaded from environment variables using createConfigFromEnv()
