@@ -1,0 +1,23 @@
+# Options Trading Copilot - Development Progress
+
+## 2026-01-25 - US-001: Project setup and architecture (COMPLETED)
+
+### What was done:
+- Created project directory structure: src/api, src/ui, src/services, src/adapters, src/storage, src/types
+- Initialized package.json with TypeScript, Vitest, ESLint, dotenv, and zod dependencies
+- Created tsconfig.json with strict TypeScript configuration
+- Created .gitignore to exclude secrets, node_modules, and build artifacts
+- Created .env.example template with placeholders for all broker types (Alpaca, Tradier, tastytrade, IBKR)
+- Created README.md with ASCII architecture diagram and component descriptions
+- Created vitest.config.ts for test framework
+- Added initial src/index.ts entry point and src/index.test.ts passing test
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1 test)
+
+### Notes for next developer:
+- The project is now ready for US-002 (Broker adapter interface)
+- Next priority should be defining the TypeScript interfaces for broker operations
+- Consider starting with Tradier as the MVP broker (recommended in original PRD discussion)
+- The directory structure follows the architecture diagram in README.md

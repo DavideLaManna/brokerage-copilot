@@ -1,0 +1,644 @@
+{
+  "project": "Options Trading Copilot",
+  "branchName": "ralph/options-trading-copilot",
+  "description": "LLM-Assisted Options Trading Copilot - Discipline and time compression for options traders with compliance-first approach",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Project setup and architecture",
+      "description": "As a developer, I need the initial project structure so I can begin building modular components.",
+      "acceptanceCriteria": [
+        "Create project directory structure (api, ui, services, adapters, storage)",
+        "Initialize Git repository with .gitignore for secrets",
+        "Set up package.json/requirements.txt with initial dependencies",
+        "Create README with architecture diagram and component descriptions",
+        "Set up environment variable template (.env.example)",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed: Created directory structure (src/api, src/ui, src/services, src/adapters, src/storage, src/types), package.json with TypeScript + Vitest, tsconfig.json with strict mode, .gitignore for secrets, .env.example template, README.md with architecture diagram. Typecheck and tests pass."
+    },
+    {
+      "id": "US-002",
+      "title": "Broker adapter interface",
+      "description": "As a developer, I need a unified broker adapter interface so I can support multiple brokers with consistent code.",
+      "acceptanceCriteria": [
+        "Define TypeScript interface for broker operations (positions, orders, quotes, chains)",
+        "Include methods: getPositions(), getOpenOrders(), getQuote(), getOptionChain(), placeOrder(), cancelOrder()",
+        "Document expected error types and rate limits",
+        "Add adapter factory pattern for broker selection",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Secure credential storage",
+      "description": "As a user, I need my broker API credentials stored securely so they cannot be exposed in logs or code.",
+      "acceptanceCriteria": [
+        "Implement secrets vault or encrypted storage (e.g., AWS Secrets Manager, Doppler, or encrypted JSON)",
+        "Never log tokens or secrets",
+        "Implement token refresh logic for OAuth providers",
+        "Add credential validation on startup",
+        "Document setup process in README",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Connect to broker (read-only, single broker MVP)",
+      "description": "As a user, I want to connect my broker account so the system can read my portfolio.",
+      "acceptanceCriteria": [
+        "Implement OAuth or token-based authentication for chosen broker",
+        "Successfully retrieve and display account balance and buying power",
+        "Handle auth errors gracefully with user-friendly messages",
+        "Store tokens securely using US-003 infrastructure",
+        "Add disconnect functionality",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Risk configuration storage",
+      "description": "As a user, I need to set my risk limits so the system enforces them on all operations.",
+      "acceptanceCriteria": [
+        "Create config schema: max risk per trade (%), max risk per underlying (%), max daily loss ($), max open positions (count), max contracts per position, allowed DTE range (min/max days)",
+        "Store config in database per user/account",
+        "Provide UI form to edit risk settings",
+        "Validate inputs (percentages 0-100, positive numbers)",
+        "Display current config on dashboard",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Fetch and display open positions",
+      "description": "As a user, I want to see all my open options positions in a dashboard so I can review my portfolio at a glance.",
+      "acceptanceCriteria": [
+        "Fetch positions from broker API",
+        "Display: symbol, contract details (strike/expiry/type), quantity, avg cost, current mark, P&L",
+        "Update positions on page refresh (manual for now)",
+        "Handle empty positions state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Fetch and display open orders",
+      "description": "As a user, I want to see my open orders so I know what's pending execution.",
+      "acceptanceCriteria": [
+        "Fetch open orders from broker API",
+        "Display: symbol, contract, side (buy/sell), quantity, limit price, order type, status, time placed",
+        "Handle empty orders state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Fetch option chains",
+      "description": "As a developer, I need to retrieve option chains so the system can analyze available strikes and expirations.",
+      "acceptanceCriteria": [
+        "Implement getOptionChain(symbol, minDTE, maxDTE) in broker adapter",
+        "Return strikes, expirations, bid/ask, volume, open interest",
+        "Include Greeks (delta, theta, vega, gamma) and IV when available from broker",
+        "Cache chain data with TTL (5-15 minutes)",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Historical price data retrieval",
+      "description": "As a developer, I need historical price bars so the system can compute technical indicators.",
+      "acceptanceCriteria": [
+        "Implement getHistoricalBars(symbol, interval, lookback) in market data service",
+        "Support at least daily and hourly intervals",
+        "Cache historical data with appropriate TTL",
+        "Handle provider errors gracefully",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Basic dashboard UI",
+      "description": "As a user, I want a web dashboard that shows my account summary, positions, and orders in one place.",
+      "acceptanceCriteria": [
+        "Create dashboard layout with sections: Account Summary, Positions, Orders",
+        "Account summary shows: net liquidation, buying power, daily P&L",
+        "Positions table uses data from US-005",
+        "Orders table uses data from US-006",
+        "Responsive design (mobile-friendly)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Risk engine - pre-trade validation",
+      "description": "As a user, I need the system to block orders that violate my risk limits so I don't accidentally over-leverage.",
+      "acceptanceCriteria": [
+        "Implement pre-trade check function: validateOrder(order, config, currentPositions)",
+        "Block if: risk per trade > config.maxRiskPerTrade, concentration exceeds limit, buying power insufficient, DTE outside allowed range, liquidity too low (spread > threshold)",
+        "Return detailed rejection reason for each failed check",
+        "Log all validation attempts (pass/fail)",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Liquidity scoring",
+      "description": "As a trader, I need to see liquidity metrics so I can avoid illiquid options that are hard to exit.",
+      "acceptanceCriteria": [
+        "Compute bid-ask spread percentage: (ask - bid) / mid * 100",
+        "Flag contracts with spread > 5% as low liquidity warning",
+        "Display volume and open interest for each contract",
+        "Add liquidity score to option chain display",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Portfolio exposure calculator",
+      "description": "As a user, I want to see my total exposure by underlying so I know if I'm over-concentrated.",
+      "acceptanceCriteria": [
+        "Aggregate positions by underlying symbol",
+        "Calculate total notional exposure and risk (max loss) per underlying",
+        "Display as Exposure by Underlying panel on dashboard",
+        "Highlight underlyings exceeding concentration limit from config",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Portfolio Greeks aggregation",
+      "description": "As an options trader, I want to see my aggregate portfolio Greeks so I understand my directional and time-decay exposure.",
+      "acceptanceCriteria": [
+        "Sum delta, theta, vega, gamma across all positions",
+        "Display in Portfolio Greeks panel on dashboard",
+        "Update when positions change",
+        "Handle missing Greeks gracefully (show N/A)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "TradeProposal schema and storage",
+      "description": "As a developer, I need a structured format for trade recommendations so they can be validated, logged, and executed consistently.",
+      "acceptanceCriteria": [
+        "Define TradeProposal schema: strategy_type, underlying, contracts (list), thesis (bullets), catalysts, entry_plan (limit/slippage/TIF), exit_plan (targets/stops), risk (max loss estimate), confidence (low/med/high), data_used (sources + timestamps), proposal_id (UUID), created_at",
+        "Create database table for trade proposals",
+        "Implement CRUD operations",
+        "Add status field: draft / approved / rejected / executed",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "LLM tool - get portfolio snapshot",
+      "description": "As an LLM agent, I need a tool to retrieve current portfolio state so I can analyze it.",
+      "acceptanceCriteria": [
+        "Implement get_portfolio_snapshot() tool returning: positions (symbol, qty, cost, mark, PnL, Greeks), open orders, account summary, exposure by underlying, portfolio Greeks",
+        "Return as structured JSON",
+        "Include data timestamp",
+        "Add to MCP tool registry (or equivalent tool protocol)",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "LLM tool - get option chain",
+      "description": "As an LLM agent, I need a tool to fetch option chains so I can analyze strikes and liquidity.",
+      "acceptanceCriteria": [
+        "Implement get_option_chain(symbol, minDTE, maxDTE) tool",
+        "Return strikes, expirations, bid/ask, Greeks, volume, OI, liquidity score",
+        "Filter by DTE range",
+        "Include data timestamp",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "LLM tool - compute technical indicators",
+      "description": "As an LLM agent, I need a tool to calculate technical indicators so I can assess trend and momentum.",
+      "acceptanceCriteria": [
+        "Implement compute_technicals(symbol, indicators) tool",
+        "Support: RSI (14-day default), moving averages (20/50/200), ATR (14-day)",
+        "Return indicator values + interpretation hints (e.g., RSI > 70: overbought)",
+        "Use historical data from US-010",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Portfolio review agent prompt",
+      "description": "As a user, I want to ask 'review my portfolio' and get an analysis with recommended actions.",
+      "acceptanceCriteria": [
+        "Implement LLM agent prompt template for portfolio review",
+        "Agent calls get_portfolio_snapshot() and analyzes: P&L, risk exposure, concentration, Greeks, upcoming events",
+        "Returns action list (hold/trim/exit/hedge) with rationale",
+        "Output includes data timestamps and sources",
+        "Agent does NOT execute any orders",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Chat interface for agent interaction",
+      "description": "As a user, I want to chat with the copilot to request reviews and recommendations.",
+      "acceptanceCriteria": [
+        "Create chat UI component on dashboard",
+        "Support commands: review positions, analyze portfolio, show exposure",
+        "Display agent responses with markdown formatting",
+        "Show loading state during LLM processing",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Draft order builder",
+      "description": "As a developer, I need a function to create draft orders from TradeProposals so they can be validated before execution.",
+      "acceptanceCriteria": [
+        "Implement buildDraftOrder(proposal) function",
+        "Convert proposal contracts to broker order format",
+        "Apply entry_plan limit price and TIF",
+        "Generate client-side idempotency key (UUID)",
+        "Return order object ready for validation",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Order preview and approval UI",
+      "description": "As a user, I want to review and approve orders before execution so I maintain control.",
+      "acceptanceCriteria": [
+        "Create Order Approval modal showing: contract details, side, quantity, limit price, estimated cost, max loss, risk check results (pass/fail with reasons)",
+        "Approve button enabled only if all risk checks pass",
+        "Reject button to dismiss",
+        "Display proposal thesis and rationale",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Place order via broker API (with idempotency)",
+      "description": "As a system, I need to place orders through the broker API without creating duplicates on retry.",
+      "acceptanceCriteria": [
+        "Implement placeOrder(order, idempotencyKey) in broker adapter",
+        "Use broker's idempotency mechanism if available, or store keys in local DB",
+        "Return order ID from broker on success",
+        "Handle errors: insufficient funds, invalid contract, rate limit, timeout",
+        "Log order submission and broker response",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Order execution flow (user approval → submission → confirmation)",
+      "description": "As a user, I want to approve an order in the UI and see it submitted to my broker successfully.",
+      "acceptanceCriteria": [
+        "User clicks Approve in US-022 modal",
+        "System runs pre-trade validation (US-011)",
+        "If pass: call placeOrder() (US-023) with idempotency key",
+        "Display success/error message with broker order ID or error details",
+        "Update TradeProposal status to executed or failed",
+        "Refresh positions and orders after execution",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Cancel order functionality",
+      "description": "As a user, I want to cancel an open order so I can adjust my strategy.",
+      "acceptanceCriteria": [
+        "Implement cancelOrder(orderId) in broker adapter",
+        "Add Cancel button to each open order in UI",
+        "Confirm cancellation with user (simple dialog)",
+        "Display success/error message",
+        "Refresh open orders list after cancellation",
+        "Log cancellation action",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Audit trail storage",
+      "description": "As a compliance-conscious user, I need every recommendation and action logged so I can review what happened and why.",
+      "acceptanceCriteria": [
+        "Create audit_log table: timestamp, event_type (recommendation/approval/execution/rejection/cancellation), actor (agent/user), proposal_id, order_id, details (JSON), correlation_id",
+        "Log every: LLM recommendation, user approval/rejection, order submission, broker response, cancellation",
+        "Include data sources and timestamps in details",
+        "Tag entries as human_initiated or agent_initiated",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Decision journal UI",
+      "description": "As a user, I want to review past decisions and outcomes so I can learn and improve.",
+      "acceptanceCriteria": [
+        "Create Journal page showing audit log entries grouped by day",
+        "Display: proposals, approvals, executions, outcomes (fills)",
+        "Filter by date range and event type",
+        "Allow user to add manual notes to journal entries",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Order repricing engine",
+      "description": "As a trader, I want the system to suggest repricing stale limit orders closer to current mid-price.",
+      "acceptanceCriteria": [
+        "Detect orders where limit price is > X% away from current mid (configurable, default 5%)",
+        "Propose new limit price within configured band",
+        "Generate OrderModification proposal with rationale",
+        "Do not execute without approval (for now)",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Auto-reprice approval setting",
+      "description": "As a user, I want to enable automatic repricing within a safe band so I don't miss fills on slow-moving orders.",
+      "acceptanceCriteria": [
+        "Add config setting: autoRepriceEnabled (boolean), autoRepriceBandPercent (e.g., 2%)",
+        "If enabled: system automatically modifies orders within band without approval",
+        "Log all auto-reprice actions with clear auto-housekeeping tag",
+        "Disable auto-reprice if any validation fails",
+        "Display auto-reprice activity in UI notifications",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Exit ladder builder",
+      "description": "As a user, I want to set up staged profit-taking orders so I can systematically lock in gains.",
+      "acceptanceCriteria": [
+        "Implement proposeExitLadder(position, targets) function",
+        "Targets example: [+25% premium, +50%, +100%]",
+        "Generate multiple limit orders at calculated prices",
+        "Validate each order against risk rules",
+        "Return structured ladder proposal for approval",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Exit ladder UI",
+      "description": "As a user, I want to click 'Set Exit Ladder' on a position and approve a set of profit-taking orders.",
+      "acceptanceCriteria": [
+        "Add Exit Ladder button to each position row",
+        "Open modal with default ladder targets (configurable)",
+        "Preview all orders (quantities, prices, targets)",
+        "Approve all or cancel",
+        "Submit approved ladder orders in batch",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Event-driven alert triggers",
+      "description": "As a user, I want to be alerted when key events occur (big price moves, premium targets hit) so I can act quickly.",
+      "acceptanceCriteria": [
+        "Define trigger types: underlying_move (±X%), premium_target (+50%/+100%), earnings_approaching (N days), bid_ask_widening (spread > threshold), portfolio_drawdown (loss > limit)",
+        "Store user trigger preferences in config",
+        "Implement polling or webhook-based monitoring",
+        "Generate alert with recommended action",
+        "Display alerts in UI notification center",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Alert action proposals",
+      "description": "As a user, when an alert fires, I want a pre-built order ready for approval so I can act fast.",
+      "acceptanceCriteria": [
+        "When trigger fires, agent analyzes situation",
+        "Generate TradeProposal for recommended action (trim/exit/hedge)",
+        "Display alert in UI with proposal preview",
+        "One-click approval flow",
+        "Tag as alert-driven in audit log",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "Multi-leg spread support",
+      "description": "As an experienced trader, I want to trade spreads (verticals, calendars) to limit risk and reduce capital requirements.",
+      "acceptanceCriteria": [
+        "Extend TradeProposal schema to support multi-leg strategies",
+        "Validate broker account supports spread orders (e.g., Alpaca level 3)",
+        "Implement spread order building and validation",
+        "Update risk engine to calculate spread max loss",
+        "Display spread orders clearly in UI (show both legs)",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Research ingestion pipeline - web/news",
+      "description": "As a user, I want the system to ingest relevant news and research so trade ideas are informed by catalysts.",
+      "acceptanceCriteria": [
+        "Implement web scraper for allowed news sources (e.g., Bloomberg, Reuters, company press releases)",
+        "Extract headline, date, body text",
+        "Deduplicate by URL hash",
+        "Store in research_notes table with source, timestamp, symbol tags",
+        "Summarize long articles using LLM (token-efficient)",
+        "Typecheck passes"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Research ingestion - PDF filings",
+      "description": "As a user, I want the system to process SEC filings and earnings reports so I can reference key data points.",
+      "acceptanceCriteria": [
+        "Implement PDF download and text extraction",
+        "Chunk long documents (e.g., 10-K) into sections",
+        "Summarize each section with LLM",
+        "Extract structured facts: earnings dates, guidance numbers, key risks",
+        "Store extracted data with citation (page/section)",
+        "Typecheck passes"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Research retrieval for trade ideas",
+      "description": "As an LLM agent, I need a tool to retrieve relevant research notes when generating trade ideas.",
+      "acceptanceCriteria": [
+        "Implement search_research(symbol, keywords) tool",
+        "Return relevant notes with source citations and timestamps",
+        "Include in TradeProposal data_used field",
+        "Support vector search (optional, P2)",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Automated scanner for new candidates",
+      "description": "As a user, I want the system to scan for new trade candidates matching my criteria so I find opportunities faster.",
+      "acceptanceCriteria": [
+        "Define scanner filters: DTE range, liquidity minimums, technical setup (RSI/trend), catalyst presence, IV rank (if available)",
+        "Run scanner on schedule or on-demand",
+        "Return ranked list of candidates with scores",
+        "Generate preliminary TradeProposal for top candidates",
+        "Display in Candidates tab on dashboard",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Performance attribution",
+      "description": "As a user, I want to see which types of trades perform best so I can refine my strategy.",
+      "acceptanceCriteria": [
+        "Track realized P&L by: strategy type, underlying, DTE bucket, catalyst category, hold duration",
+        "Display in Performance dashboard",
+        "Show win rate, avg win/loss, max drawdown",
+        "Identify patterns (e.g., trades held > 30 days outperform)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Kill switch",
+      "description": "As a user, I need an emergency kill switch so I can immediately stop all automation and cancel orders if something goes wrong.",
+      "acceptanceCriteria": [
+        "Add Kill Switch button (prominent, red)",
+        "On activation: disable all automation, cancel all open orders (configurable), switch to read-only mode, log kill switch event with reason",
+        "Require manual re-enable with confirmation",
+        "Notify user of status",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
