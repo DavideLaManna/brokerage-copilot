@@ -281,8 +281,8 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive technical indicators service and MCP tool. (1) src/services/technical-indicators.ts implements: calculateSMA() for Simple Moving Averages, calculateEMA() for Exponential Moving Averages, calculateRSI() with Wilder's smoothing (default 14-period), calculateATR() using True Range with Wilder's smoothing (default 14-period), analyzeTrend() for MA crossover signals (golden/death cross). (2) RSI interpretations: oversold (<30), approaching_oversold (30-40), neutral (40-60), approaching_overbought (60-70), overbought (>70). (3) ATR interpretations: low_volatility (<1.5%), normal_volatility (1.5-3%), high_volatility (>3%). (4) Trend analysis detects golden cross (50 SMA > 200 SMA) and death cross, identifies price extension from 20-day SMA. (5) src/tools/technical-indicators.ts implements compute_technicals MCP tool with: symbol (required), indicators array (rsi/sma/ema/atr), interval (minute to monthly), lookback (1-500 bars), custom period overrides. (6) Returns TechnicalIndicatorsSnapshot with: currentPrice, rsi (value/period/interpretation/hint), movingAverages (sma/ema with pricePosition and percentDifference), atr (value/valuePercent/interpretation/hint), trend (direction/signals), interpretations, warnings, request params, dataTimestamp, dataSources. (7) Uses MarketDataService for cached historical bars from US-010. (8) Added to tool registry exports. Added 80 comprehensive tests (516 total). Typecheck passes."
     },
     {
       "id": "US-019",

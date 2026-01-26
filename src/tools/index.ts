@@ -48,3 +48,14 @@ export {
   type SnapshotOptionContract,
   type SnapshotExpiration,
 } from './option-chain.js';
+
+// Tools - Technical Indicators
+export {
+  createTechnicalIndicatorsTool,
+  buildTechnicalIndicatorsSnapshot,
+  computeTechnicals,
+  ComputeTechnicalsInputSchema,
+  type TechnicalIndicatorsToolContext,
+  type ComputeTechnicalsInput,
+  type TechnicalIndicatorsSnapshot,
+} from './technical-indicators.js';

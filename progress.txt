@@ -809,3 +809,99 @@
 - lowLiquidityWarning flag when spread > 5% (configurable)
 - All dates are serialized as ISO strings for JSON compatibility
 - Next feature to implement is US-018 (LLM tool - compute technical indicators)
+
+## 2026-01-26 - US-018: LLM tool - compute technical indicators (COMPLETED)
+
+### What was done:
+- Created src/services/technical-indicators.ts with comprehensive technical indicator calculations
+  - calculateSMA(): Simple Moving Average for any period
+  - calculateEMA(): Exponential Moving Average using standard multiplier (2/(period+1))
+  - calculateRSI(): Relative Strength Index using Wilder's smoothing method (default 14-period)
+  - calculateATR(): Average True Range using True Range formula with Wilder's smoothing (default 14-period)
+  - calculateTrueRange(): True Range calculation (max of high-low, |high-prevClose|, |low-prevClose|)
+  - analyzeTrend(): Trend analysis based on MA positions and crossovers
+- RSI interpretation categories:
+  - oversold (RSI <= 30): "potential buying opportunity"
+  - approaching_oversold (30-40): "Watch for further decline"
+  - neutral (40-60): "No extreme momentum signals"
+  - approaching_overbought (60-70): "Watch for potential reversal"
+  - overbought (RSI >= 70): "Be cautious with new long positions"
+- ATR interpretation categories:
+  - low_volatility (ATR < 1.5% of price): "tighter stops possible, options premiums may be low"
+  - normal_volatility (1.5-3%): "Standard position sizing appropriate"
+  - high_volatility (> 3%): "wider stops needed, options premiums likely elevated"
+- Trend analysis features:
+  - Direction: bullish/bearish/neutral based on price vs MA positions
+  - Golden cross detection: 50-day SMA above 200-day SMA (bullish signal)
+  - Death cross detection: 50-day SMA below 200-day SMA (bearish signal)
+  - Price extension signals: warns when price > 5% from 20-day SMA
+- Created src/tools/technical-indicators.ts with compute_technicals MCP tool
+  - Input schema (Zod validated):
+    - symbol (required): Ticker symbol
+    - indicators (optional): Array of ['rsi', 'sma', 'ema', 'atr'], default all
+    - interval (optional): 'minute' | '5min' | '15min' | 'hourly' | 'daily' | 'weekly' | 'monthly', default 'daily'
+    - lookback (optional): 1-500 bars, default 200
+    - rsiPeriod, atrPeriod, maPeriods: Custom period overrides
+  - Returns TechnicalIndicatorsSnapshot with:
+    - currentPrice: Current/last close price
+    - rsi: { value, period, interpretation, hint }
+    - movingAverages.sma/ema: [{ period, value, pricePosition, percentDifference }]
+    - atr: { value, valuePercent, period, interpretation, hint }
+    - trend: { direction, signals }
+    - interpretations: Array of human-readable analysis hints
+    - warnings: Array of data quality warnings (e.g., "Insufficient data for 200-day SMA")
+    - request: Echo of input parameters
+    - dataTimestamp: ISO string
+    - dataSources: [{ source, retrievedAt, barsAnalyzed, interval }]
+  - Uses MarketDataService for cached historical bars (from US-010)
+  - createTechnicalIndicatorsTool(): Creates MCP tool definition
+  - computeTechnicals(): Standalone function for direct API use
+- Updated src/tools/index.ts with technical indicators exports
+- Updated src/services/index.ts with technical indicators service exports
+- Added 49 tests in src/services/technical-indicators.test.ts covering:
+  - SMA calculation (sufficient data, insufficient data, exact period)
+  - EMA calculation (sufficient data, insufficient data, responds faster than SMA)
+  - RSI calculation (uptrend, downtrend, insufficient data, neutral market)
+  - RSI interpretation (oversold, approaching_oversold, neutral, approaching_overbought, overbought)
+  - True Range calculation (high-low, gap up, gap down scenarios)
+  - ATR calculation (sufficient data, insufficient data, percentage calculation)
+  - ATR interpretation (low/normal/high volatility)
+  - Trend analysis (bullish, bearish, neutral, golden cross, death cross, empty MAs)
+  - computeTechnicalIndicators (all indicators, empty bars, insufficient data, custom config)
+  - filterIndicators (RSI only, SMA only, ATR only, multiple indicators)
+  - Format functions (RSI, ATR, trend interpretations)
+  - DEFAULT_TECHNICALS_CONFIG values
+- Added 31 tests in src/tools/technical-indicators.test.ts covering:
+  - Input schema validation (valid inputs, empty symbol, invalid indicators, intervals)
+  - buildTechnicalIndicatorsSnapshot (complete snapshot, RSI only, request params, MA positions)
+  - createTechnicalIndicatorsTool (tool definition, null adapter, valid adapter, invalid input, adapter errors)
+  - Metadata inclusion (currentPrice, trendDirection, rsiValue, atrPercent, etc.)
+  - computeTechnicals standalone function
+  - Tool registry integration
+  - RSI hints (oversold, overbought)
+  - ATR hints (volatility context)
+  - Trend signals (golden/death cross)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (516 tests total - 80 new technical indicators tests)
+
+### Notes for next developer:
+- To use the compute_technicals tool:
+  1. Create context: `const context = { adapter: brokerAdapter, marketDataService?: cacheService }`
+  2. Create tool: `const tool = createTechnicalIndicatorsTool(context)`
+  3. Register: `registry.register(tool)`
+  4. Execute: `const result = await registry.execute('compute_technicals', { symbol: 'AAPL', indicators: ['rsi', 'sma'] })`
+- Or use standalone function: `const snapshot = await computeTechnicals(adapter, { symbol: 'AAPL', indicators: ['rsi', 'atr'], interval: 'daily', lookback: 200 })`
+- Or use service directly: `const analysis = computeTechnicalIndicators({ symbol: 'AAPL', bars: historicalBars, config: { rsiPeriod: 7 } })`
+- The snapshot includes:
+  - RSI with interpretation hints (oversold/overbought signals)
+  - SMAs and EMAs with price position (above/below) and percent difference
+  - ATR with volatility interpretation and position sizing hints
+  - Trend direction with crossover signals
+  - Human-readable interpretations for LLM agents
+  - Warnings when insufficient data for certain indicators
+- Default config: RSI 14-day, ATR 14-day, MAs at 20/50/200 days
+- Uses MarketDataService for caching historical bars (reduces API calls)
+- All indicators properly handle edge cases (insufficient data, zero/negative values)
+- Next feature to implement is US-019 (Portfolio review agent prompt)
