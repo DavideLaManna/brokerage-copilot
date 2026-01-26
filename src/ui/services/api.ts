@@ -4,7 +4,16 @@
  * Handles communication with the backend API server.
  */
 
-import type { AccountSummary, Position, Order, ConnectionState, OptionChain, OptionContract } from '../types';
+import type {
+  AccountSummary,
+  Position,
+  Order,
+  ConnectionState,
+  OptionChain,
+  OptionContract,
+  PortfolioExposure,
+  UnderlyingExposure,
+} from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -285,6 +294,25 @@ export const api = {
       expirations: data.expirations.map((d) => new Date(d)),
       contracts: parseOptionContracts(data.contracts),
       asOf: new Date(data.asOf),
+    };
+  },
+
+  /**
+   * Get portfolio exposure by underlying
+   */
+  async getExposure(concentrationLimit?: number): Promise<PortfolioExposure> {
+    const params = new URLSearchParams();
+    if (concentrationLimit !== undefined) {
+      params.set('concentrationLimit', concentrationLimit.toString());
+    }
+
+    const queryString = params.toString();
+    const url = `/api/exposure${queryString ? `?${queryString}` : ''}`;
+
+    const data = await fetchApi<PortfolioExposure>(url);
+    return {
+      ...data,
+      calculatedAt: new Date(data.calculatedAt),
     };
   },
 };

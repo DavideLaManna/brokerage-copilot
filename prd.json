@@ -205,8 +205,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created ExposureCalculator service (src/services/exposure-calculator.ts) that aggregates positions by underlying symbol and calculates: (1) notional exposure (strike*multiplier*contracts for options, qty*price for equity); (2) risk/max loss per underlying (premium for long options, strike value for short puts, 3x strike for short calls, market value for long equity, 2x for short); (3) exposure and risk as percentage of account value; (4) concentration warnings when exceeding configurable limit (default 10%, uses maxRiskPerUnderlyingPercent from RiskConfig). Added ExposurePanel UI component displaying table with Symbol, Positions, Net Qty, Market Value, Notional, Risk, Risk %, P&L, and Status (OK/OVER LIMIT badges). Underlyings exceeding limit shown with warning icon and highlighted rows. Summary stats show total notional, total risk, risk % of account. Added API endpoint GET /api/exposure with optional concentrationLimit query param. Integrated ExposurePanel into dashboard. Works in both demo mode (client-side computation) and live mode (API fetch). Added 26 comprehensive tests (260 total). Typecheck passes. UI builds successfully."
     },
     {
       "id": "US-014",

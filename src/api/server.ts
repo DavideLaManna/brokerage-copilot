@@ -11,6 +11,8 @@ import type { BrokerAdapter, AccountSummary, Position, Order, OptionChainRequest
 import { BrokerConnectionService } from '../services/broker-connection.js';
 import { BrokerError, BrokerErrorCode } from '../types/errors.js';
 import { addLiquidityToChain, type OptionChainWithLiquidity } from '../services/liquidity.js';
+import { calculatePortfolioExposure, type PortfolioExposure } from '../services/exposure-calculator.js';
+import { DEFAULT_RISK_CONFIG, type RiskConfig } from '../types/risk-config.js';
 
 /**
  * API response wrapper for consistent response format
@@ -224,6 +226,39 @@ export class ApiServer {
           expirations: chainWithLiquidity.expirations,
           contracts: contractsObj,
           asOf: chainWithLiquidity.asOf,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get portfolio exposure by underlying
+    this.app.get('/api/exposure', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        // Fetch account and positions in parallel
+        const [account, positions] = await Promise.all([
+          adapter.getAccountSummary(),
+          adapter.getPositions(),
+        ]);
+
+        // Get concentration limit from query params or use default
+        const concentrationLimit = req.query.concentrationLimit
+          ? parseFloat(req.query.concentrationLimit as string)
+          : undefined;
+
+        // Build risk config for exposure calculation
+        const riskConfig: RiskConfig = concentrationLimit
+          ? { ...DEFAULT_RISK_CONFIG, maxRiskPerUnderlyingPercent: concentrationLimit }
+          : DEFAULT_RISK_CONFIG;
+
+        // Calculate exposure
+        const exposure = calculatePortfolioExposure(positions, account, riskConfig);
+
+        res.json(this.wrapResponse({
+          ...exposure,
+          concentrationLimit: riskConfig.maxRiskPerUnderlyingPercent,
         }));
       } catch (error) {
         next(error);

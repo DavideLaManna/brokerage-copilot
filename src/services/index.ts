@@ -52,3 +52,16 @@ export {
   type OptionContractWithLiquidity,
   type OptionChainWithLiquidity,
 } from './liquidity.js';
+
+export {
+  ExposureCalculator,
+  createExposureCalculator,
+  calculatePortfolioExposure,
+  getExceedingLimitUnderlyings,
+  formatExposureForDisplay,
+  type UnderlyingExposure,
+  type PositionSummary,
+  type AggregatedGreeks,
+  type PortfolioExposure,
+  type ExposureCalculatorConfig,
+} from './exposure-calculator.js';

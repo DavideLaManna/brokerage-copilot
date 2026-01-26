@@ -126,3 +126,54 @@ export interface OptionChain {
   contracts: Record<string, OptionContract[]>;
   asOf: Date;
 }
+
+// ============================================================================
+// Exposure Types
+// ============================================================================
+
+export interface AggregatedGreeks {
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+}
+
+export interface PositionSummary {
+  id: string;
+  symbol: string;
+  assetClass: 'equity' | 'option';
+  quantity: number;
+  marketValue: number;
+  notionalExposure: number;
+  risk: number;
+  optionType?: 'call' | 'put';
+  strike?: number;
+  dte?: number;
+}
+
+export interface UnderlyingExposure {
+  symbol: string;
+  notionalExposure: number;
+  risk: number;
+  exposurePercent: number;
+  riskPercent: number;
+  positionCount: number;
+  netQuantity: number;
+  marketValue: number;
+  unrealizedPnL: number;
+  exceedsLimit: boolean;
+  warning?: string;
+  aggregatedGreeks?: AggregatedGreeks;
+  positions: PositionSummary[];
+}
+
+export interface PortfolioExposure {
+  underlyings: UnderlyingExposure[];
+  totalNotionalExposure: number;
+  totalRisk: number;
+  totalRiskPercent: number;
+  underlyingCount: number;
+  exceedingLimitCount: number;
+  calculatedAt: Date;
+  concentrationLimit?: number;
+}

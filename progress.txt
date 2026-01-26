@@ -483,3 +483,73 @@
 - Default threshold for low liquidity warning is 5% spread
 - Liquidity rating considers both spread AND volume/OI (high liquidity requires tight spread AND good volume)
 - Next features to implement are US-013 (Portfolio exposure calculator) or US-014 (Portfolio Greeks aggregation)
+
+## 2026-01-26 - US-013: Portfolio exposure calculator (COMPLETED)
+
+### What was done:
+- Created src/services/exposure-calculator.ts with ExposureCalculator class
+  - Aggregates positions by underlying symbol (options grouped by underlying, equity by symbol)
+  - Calculates notional exposure: contracts * strike * multiplier for options, qty * price for equity
+  - Calculates risk (max loss) per underlying:
+    - Long options: premium paid (market value)
+    - Short puts: strike * multiplier * contracts
+    - Short calls: 3x strike (unlimited proxy)
+    - Long equity: market value
+    - Short equity: 2x market value (unlimited proxy)
+  - Computes exposure and risk as percentage of account value
+  - Flags underlyings exceeding concentration limit (uses maxRiskPerUnderlyingPercent from RiskConfig)
+  - Aggregates Greeks (delta, gamma, theta, vega) across option positions per underlying
+  - Calculates net quantity (delta-equivalent shares for options)
+  - Includes position-level breakdown with DTE for options
+  - Sorts underlyings by exposure percentage (descending)
+- Created src/ui/components/ExposurePanel.tsx
+  - Displays "Exposure by Underlying" panel on dashboard
+  - Summary stats: Total Notional, Total Risk, Risk % of Account, Concentration Limit
+  - Table columns: Symbol, Positions, Net Qty, Market Value, Notional, Risk, Risk %, P&L, Status
+  - Status badges: OK (green) for within limit, OVER LIMIT (red) for exceeding
+  - Warning icon and highlighted rows for underlyings exceeding limit
+  - Warning messages section at bottom for all limit violations
+  - Loading and empty states
+- Added GET /api/exposure endpoint to API server
+  - Accepts optional concentrationLimit query parameter
+  - Returns portfolio exposure with all underlyings and aggregated metrics
+  - Uses RiskConfig's maxRiskPerUnderlyingPercent as default limit
+- Updated src/ui/App.tsx to integrate ExposurePanel
+  - Added exposure state and client-side computation for demo mode
+  - Fetches from /api/exposure in live mode with fallback to client-side computation
+  - Added computeExposure() helper function mirroring backend logic
+  - ExposurePanel displays between AccountSummary and PositionsTable
+- Updated src/ui/types.ts with exposure types (PortfolioExposure, UnderlyingExposure, etc.)
+- Updated src/ui/services/api.ts with getExposure() method
+- Added CSS styles for exposure panel in src/ui/styles/index.css
+- Updated exports in src/services/index.ts and src/ui/components/index.ts
+- Added 26 comprehensive tests in src/services/exposure-calculator.test.ts covering:
+  - Position aggregation by underlying (equity and options)
+  - Notional exposure calculation
+  - Risk calculation for all position types (long/short equity/options)
+  - Percentage calculations
+  - Concentration limit flagging with configurable limits
+  - Greeks aggregation
+  - Net quantity calculation
+  - DTE in position summaries
+  - Sorting by exposure
+  - Edge cases (zero account value)
+  - Factory and standalone functions
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (260 tests total - 26 new exposure tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To use ExposureCalculator:
+  1. Create: `const calculator = new ExposureCalculator()`
+  2. Calculate: `const exposure = calculator.calculateExposure(positions, account, riskConfig)`
+  3. Access: `exposure.underlyings` for per-underlying data, `exposure.totalRisk` for portfolio totals
+- Or use standalone function: `calculatePortfolioExposure(positions, account, riskConfig)`
+- The API endpoint /api/exposure returns exposure with concentration limit included
+- The ExposurePanel component is now part of the dashboard (between AccountSummary and Positions)
+- Default concentration limit is 10% (from DEFAULT_RISK_CONFIG.maxRiskPerUnderlyingPercent)
+- Risk calculations are conservative estimates for unlimited-loss positions (short calls, short equity)
+- The client-side computeExposure() in App.tsx mirrors the backend logic for demo mode
+- Next feature to implement is US-014 (Portfolio Greeks aggregation) which can reuse the aggregated Greeks already computed in the exposure calculator
