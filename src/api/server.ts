@@ -14,6 +14,7 @@ import { addLiquidityToChain, type OptionChainWithLiquidity } from '../services/
 import { calculatePortfolioExposure, type PortfolioExposure } from '../services/exposure-calculator.js';
 import { calculatePortfolioGreeks, type PortfolioGreeks } from '../services/portfolio-greeks.js';
 import { DEFAULT_RISK_CONFIG, type RiskConfig } from '../types/risk-config.js';
+import { getPortfolioSnapshot } from '../tools/portfolio-snapshot.js';
 
 /**
  * API response wrapper for consistent response format
@@ -278,6 +279,25 @@ export class ApiServer {
         const greeks = calculatePortfolioGreeks(positions);
 
         res.json(this.wrapResponse(greeks));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get portfolio snapshot (MCP tool endpoint for LLM agents)
+    this.app.get('/api/tools/portfolio-snapshot', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        // Parse optional query parameters
+        const concentrationLimit = req.query.concentrationLimit
+          ? parseFloat(req.query.concentrationLimit as string)
+          : undefined;
+
+        // Build the snapshot
+        const snapshot = await getPortfolioSnapshot(adapter, { concentrationLimit });
+
+        res.json(this.wrapResponse(snapshot));
       } catch (error) {
         next(error);
       }

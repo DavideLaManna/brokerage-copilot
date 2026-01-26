@@ -251,8 +251,8 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive MCP tool infrastructure for LLM agents. (1) src/tools/types.ts defines MCP types: MCPToolDefinition (name, description, inputSchema, handler), MCPToolResult (success, data, error, timestamp, metadata), MCPToolRegistry interface, and PortfolioSnapshot type with all required data structures (SnapshotPosition with Greeks, SnapshotOrder, SnapshotAccountSummary, SnapshotExposure, SnapshotGreeks with interpretations). (2) src/tools/registry.ts implements ToolRegistry class with register(), get(), list(), execute() methods, input validation via Zod schemas, global registry singleton pattern. (3) src/tools/portfolio-snapshot.ts implements get_portfolio_snapshot tool returning structured JSON with: positions (symbol, qty, cost, mark, P&L, Greeks), open orders, account summary, exposure by underlying with concentration warnings, portfolio Greeks with interpretations, summary statistics (total positions, option/equity counts, risk metrics), data timestamp, and data sources. (4) Added GET /api/tools/portfolio-snapshot REST endpoint to API server for direct access. (5) buildPortfolioSnapshot() fetches all data in parallel (account, positions, orders), calculates derived data (exposure, Greeks), converts to snapshot format. (6) Accepts optional concentrationLimit parameter. Added 37 comprehensive tests (402 total). Typecheck passes."
     },
     {
       "id": "US-017",

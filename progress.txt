@@ -688,3 +688,66 @@
 - Use getAllProposals() with filters for efficient querying
 - calculateProposalCost() returns positive (debit) or negative (credit) based on sides
 - Next features to implement are US-016 (LLM tool - get portfolio snapshot) or US-017 (LLM tool - get option chain)
+
+## 2026-01-26 - US-016: LLM tool - get portfolio snapshot (COMPLETED)
+
+### What was done:
+- Created src/tools/ directory with MCP (Model Context Protocol) tool infrastructure
+- Created src/tools/types.ts with comprehensive type definitions:
+  - MCPToolDefinition: name, description, inputSchema (Zod), handler function
+  - MCPToolResult: success, data, error, timestamp, metadata
+  - MCPToolRegistry interface for tool management
+  - PortfolioSnapshot type with all required data structures:
+    - SnapshotPosition: id, symbol, underlying, assetClass, quantity, averageCost, currentPrice, marketValue, unrealizedPnL, unrealizedPnLPercent, optionDetails (strike, expiration, optionType, daysToExpiration), greeks (delta, gamma, theta, vega, IV)
+    - SnapshotOrder: id, symbol, underlying, side, orderType, timeInForce, quantity, filledQuantity, limitPrice, stopPrice, status, submittedAt, optionDetails
+    - SnapshotAccountSummary: netLiquidation, buyingPower, cash, dailyPnL, unrealizedPnL, currency
+    - SnapshotExposure: symbol, positionCount, netQuantity, marketValue, notionalExposure, risk, riskPercent, exceedsLimit, greeks
+    - SnapshotGreeks: delta, gamma, theta, vega, positionsWithGreeks, positionsWithoutGreeks, interpretations
+  - GetPortfolioSnapshotInputSchema with optional concentrationLimit parameter
+- Created src/tools/registry.ts with ToolRegistry class:
+  - register(tool): Register new tools with duplicate check
+  - get(name): Retrieve tool by name
+  - list(): List all registered tools
+  - getToolDescriptions(): Get names and descriptions for LLM prompts
+  - execute(name, input): Execute tool with input validation via Zod
+  - Global registry singleton pattern (getGlobalRegistry, resetGlobalRegistry)
+- Created src/tools/portfolio-snapshot.ts with get_portfolio_snapshot tool:
+  - buildPortfolioSnapshot(): Fetches data in parallel (account, positions, orders)
+  - Calculates derived data: exposure via ExposureCalculator, Greeks via calculatePortfolioGreeks
+  - Converts to snapshot format with proper date serialization (ISO strings)
+  - Includes summary statistics: totalPositions, optionPositions, equityPositions, openOrders, totalMarketValue, totalUnrealizedPnL, totalRisk, totalRiskPercent, underlyingsExceedingLimit
+  - Includes data timestamp and source information
+  - createPortfolioSnapshotTool(): Creates MCP tool definition with handler
+  - getPortfolioSnapshot(): Standalone function for direct API use
+- Added GET /api/tools/portfolio-snapshot endpoint to API server (src/api/server.ts)
+  - Accepts optional concentrationLimit query parameter
+  - Returns full portfolio snapshot as structured JSON
+- Created src/tools/index.ts barrel exports
+- Added 37 comprehensive tests:
+  - src/tools/portfolio-snapshot.test.ts (19 tests): buildPortfolioSnapshot, createPortfolioSnapshotTool, getPortfolioSnapshot, tool registry integration, snapshot data format, Greeks interpretations, exposure calculations
+  - src/tools/registry.test.ts (18 tests): register, get, list, getToolDescriptions, execute, clear, global registry
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (402 tests total - 37 new MCP tool tests)
+
+### Notes for next developer:
+- To use the MCP tool infrastructure:
+  1. Create context: `const context = { adapter: brokerAdapter }`
+  2. Create tool: `const tool = createPortfolioSnapshotTool(context)`
+  3. Register: `registry.register(tool)`
+  4. Execute: `const result = await registry.execute('get_portfolio_snapshot', {})`
+- Or use standalone function: `const snapshot = await getPortfolioSnapshot(adapter, { concentrationLimit: 15 })`
+- The REST endpoint is available at GET /api/tools/portfolio-snapshot
+- The snapshot includes:
+  - Full position data with Greeks (if available)
+  - Open orders with option details
+  - Account summary (balance, buying power, P&L)
+  - Exposure by underlying with concentration warnings
+  - Portfolio Greeks with human-readable interpretations
+  - Summary statistics for quick overview
+  - Data timestamp and source for audit trail
+- All dates are serialized as ISO strings for JSON compatibility
+- Tool input is validated via Zod schema before execution
+- Handler errors are caught and returned as structured error responses
+- Next feature to implement is US-017 (LLM tool - get option chain)
