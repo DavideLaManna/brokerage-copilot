@@ -58,3 +58,19 @@ export {
   calculateRequestDelay,
   createRateLimiterState,
 } from './rate-limits.js';
+
+// Risk configuration types
+export type {
+  RiskConfig,
+  StoredRiskConfig,
+  RiskConfigValidationResult,
+} from './risk-config.js';
+
+export {
+  RiskConfigSchema,
+  RiskConfigWithValidationSchema,
+  StoredRiskConfigSchema,
+  DEFAULT_RISK_CONFIG,
+  validateRiskConfig,
+  formatRiskConfigForDisplay,
+} from './risk-config.js';

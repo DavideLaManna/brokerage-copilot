@@ -145,3 +145,46 @@
 - Environment variables for Tradier: TRADIER_ACCESS_TOKEN, TRADIER_ACCOUNT_ID, TRADIER_BASE_URL
 - All API requests include proper error handling for auth, rate limits, and service errors
 - The BrokerConnectionService maintains connection state and handles reconnection logic
+
+## 2026-01-26 - US-009: Risk configuration storage (COMPLETED)
+
+### What was done:
+- Created src/types/risk-config.ts with complete risk configuration types
+  - RiskConfig type with: maxRiskPerTradePercent, maxRiskPerUnderlyingPercent, maxDailyLoss, maxOpenPositions, maxContractsPerPosition, minDTE, maxDTE
+  - Zod schemas (RiskConfigSchema, RiskConfigWithValidationSchema) for runtime validation
+  - StoredRiskConfig interface for persistence with id, accountId, timestamps, name, isActive
+  - DEFAULT_RISK_CONFIG with conservative defaults (2% per trade, 10% per underlying, etc.)
+  - validateRiskConfig() with cross-field validation (minDTE < maxDTE) and warnings for aggressive settings
+  - formatRiskConfigForDisplay() helper for UI rendering
+- Created src/services/risk-config.ts with RiskConfigService class
+  - Full CRUD operations: createConfig, updateConfig, deleteConfig, setActiveConfig
+  - getActiveConfig() returns effective config (or defaults if none set)
+  - getAllConfigs() for listing account configurations
+  - createDefaultConfig() for new account setup
+  - Encrypted storage per account in .config/risk/ directory using AES-256-GCM
+  - Multiple configs per account with one active at a time
+  - createRiskConfigServiceFromEnv() for initialization from env vars
+- Updated src/types/index.ts and src/services/index.ts with exports
+- Added src/services/risk-config.test.ts with 31 tests covering:
+  - Schema validation (valid configs, negative values, percentages over 100, non-integers)
+  - Cross-field validation (minDTE vs maxDTE)
+  - Warning generation for aggressive settings
+  - CRUD operations (create, update, delete, set active)
+  - Persistence to disk and reload
+  - Multi-account isolation
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (110 tests total)
+
+### Notes for next developer:
+- The project is now ready for US-005 (Fetch and display open positions) or US-008 (Basic dashboard UI)
+- To use RiskConfigService:
+  1. Create: `const service = new RiskConfigService({ masterPassword: '...' })`
+  2. Initialize: `await service.initialize()`
+  3. Create config: `await service.createConfig(accountId, config, { setActive: true })`
+  4. Get active config: `const config = service.getActiveConfig(accountId)`
+- The UI form and dashboard display are deferred to US-008 (Basic dashboard UI)
+- Risk configs are encrypted with the same master password used for credentials
+- Warnings are returned for aggressive settings but don't block creation
+- The service supports multiple configurations per account for A/B testing strategies
