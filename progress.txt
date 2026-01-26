@@ -905,3 +905,81 @@
 - Uses MarketDataService for caching historical bars (reduces API calls)
 - All indicators properly handle edge cases (insufficient data, zero/negative values)
 - Next feature to implement is US-019 (Portfolio review agent prompt)
+
+## 2026-01-26 - US-019: Portfolio review agent prompt (COMPLETED)
+
+### What was done:
+- Created src/agents/ directory with portfolio review agent implementation
+- Created src/agents/portfolio-review.ts with comprehensive LLM agent prompt and analysis engine:
+  - PORTFOLIO_REVIEW_PROMPT_TEMPLATE: Structured LLM prompt template for portfolio review
+    - References get_portfolio_snapshot() tool
+    - Analysis categories: P&L, risk exposure, concentration, Greeks, expiration
+    - Action types: HOLD, TRIM, EXIT, HEDGE, MONITOR
+    - Output format with health assessment, summary, findings, actions
+    - Explicit statement: agent does NOT execute orders
+  - ActionType: 'hold' | 'trim' | 'exit' | 'hedge' | 'monitor'
+  - ActionPriority: 'high' | 'medium' | 'low'
+  - AnalysisCategory: 'pnl' | 'risk_exposure' | 'concentration' | 'greeks' | 'expiration' | 'liquidity'
+  - RecommendedAction: action, priority, symbol, positionId, rationale, triggeredBy[], details
+  - AnalysisFinding: category, severity (info/warning/critical), description, symbols, details
+  - PortfolioReviewResult: healthAssessment, summary, findings, actions, attentionRequired, dataTimestamp, dataSources, reviewGeneratedAt
+  - PortfolioReviewConfig: configurable thresholds for all analyses
+- Implemented analysis functions:
+  - analyzePnL(): Flags overall portfolio P&L (>20% loss = critical, >10% = warning), positions with significant losses (>50%) or gains (>50%)
+  - analyzeRiskExposure(): Checks total risk as % of account (>50% critical, >30% warning), low buying power (<20% warning)
+  - analyzeConcentration(): Flags underlyings exceeding concentration limit, warns about approaching limits (>70% of limit)
+  - analyzeGreeks(): Checks delta exposure (>500 delta-equiv shares), theta decay (>$100/day), missing Greeks data
+  - analyzeExpirations(): Flags positions expiring today (critical) or within 7 days (warning)
+- Implemented generateActions():
+  - EXIT for expiring today positions (high priority)
+  - TRIM for over-concentrated or high profit positions
+  - HEDGE for high delta exposure (portfolio-level)
+  - EXIT/MONITOR for losing positions based on DTE
+  - MONITOR for near-expiration positions
+  - HOLD for healthy positions
+  - Sorts actions by priority (high first)
+- Implemented reviewPortfolio():
+  - Runs all analyses
+  - Generates actions based on findings
+  - Assesses overall health (healthy/caution/at_risk)
+  - Generates summary with position counts and P&L
+  - Identifies positions needing immediate attention
+  - Includes data timestamps and sources
+- Implemented formatReviewForDisplay(): Markdown formatter with severity icons and priority tags
+- Created DEFAULT_REVIEW_CONFIG with sensible defaults (50% P&L thresholds, 7 days expiration warning, 10% concentration limit, 500 delta limit, $100 theta limit)
+- Created src/agents/index.ts barrel exports
+- Added 46 comprehensive tests in src/agents/portfolio-review.test.ts covering:
+  - DEFAULT_REVIEW_CONFIG values
+  - analyzePnL: healthy portfolio, portfolio down >20%, down >10%, significant losses, significant gains
+  - analyzeRiskExposure: healthy levels, critical >50%, warning >30%, low buying power
+  - analyzeConcentration: within limits, over-concentrated, approaching limits
+  - analyzeGreeks: balanced Greeks, high delta, high theta, missing Greeks
+  - analyzeExpirations: no near-term, expiring today, expiring this week
+  - generateActions: exit for expiring, trim for over-concentrated, hedge for high delta, trim for profits, hold for healthy, priority sorting
+  - reviewPortfolio: healthy assessment, caution assessment, at_risk assessment, data timestamps, custom config, summary generation
+  - formatReviewForDisplay: healthy review, attention required, severity icons, priority tags
+  - PORTFOLIO_REVIEW_PROMPT_TEMPLATE: tool reference, analysis categories, action types, no execution emphasis, output format
+  - Edge cases: empty positions, zero account value, negative P&L, short DTE losers, multiple underlyings
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (562 tests total - 46 new portfolio review tests)
+
+### Notes for next developer:
+- To use the portfolio review agent:
+  1. Get portfolio snapshot: `const snapshot = await getPortfolioSnapshot(adapter)`
+  2. Review portfolio: `const review = reviewPortfolio(snapshot)`
+  3. Format for display: `const markdown = formatReviewForDisplay(review)`
+- Or use the LLM prompt template: `PORTFOLIO_REVIEW_PROMPT_TEMPLATE`
+- The review result includes:
+  - healthAssessment: 'healthy' | 'caution' | 'at_risk'
+  - summary: Human-readable summary
+  - findings: Array of analysis findings with severity
+  - actions: Array of recommended actions with priority and rationale
+  - attentionRequired: Symbols needing immediate attention
+  - dataTimestamp and dataSources from the snapshot
+  - reviewGeneratedAt: When the review was created
+- The agent does NOT execute any orders - it only provides recommendations
+- Custom thresholds can be passed to reviewPortfolio(): `reviewPortfolio(snapshot, { pnlLossThreshold: -30 })`
+- Default thresholds: 50% P&L loss/gain, 7 days expiration, 10% concentration, 500 delta, $100 theta
+- Next feature to implement is US-020 (Chat interface for agent interaction)

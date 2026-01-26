@@ -297,8 +297,8 @@
         "Typecheck passes"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive portfolio review agent (src/agents/portfolio-review.ts) with LLM prompt template and analysis engine. (1) PORTFOLIO_REVIEW_PROMPT_TEMPLATE provides structured instructions for LLM agents: tool references, analysis guidelines (P&L, risk, concentration, Greeks, expiration), action types (HOLD/TRIM/EXIT/HEDGE/MONITOR), output format, and clear statement that agent does NOT execute orders. (2) reviewPortfolio() function analyzes PortfolioSnapshot: analyzePnL() flags positions >50% loss or gain, analyzeRiskExposure() checks total risk (>30% warning, >50% critical) and buying power, analyzeConcentration() flags underlyings exceeding limits, analyzeGreeks() checks delta/theta exposure against thresholds, analyzeExpirations() flags options expiring within 7 days. (3) generateActions() produces action list: EXIT for expiring today, TRIM for over-concentrated or high profit, HEDGE for high delta, MONITOR for concerning positions, HOLD for healthy positions. Each action has priority (high/medium/low), rationale, triggeredBy categories, and details. (4) Returns PortfolioReviewResult with: healthAssessment (healthy/caution/at_risk), summary, findings[], actions[], attentionRequired[], dataTimestamp, dataSources[], reviewGeneratedAt. (5) formatReviewForDisplay() formats review as markdown with severity icons and priority tags. (6) DEFAULT_REVIEW_CONFIG provides sensible thresholds. (7) Created src/agents/index.ts barrel exports. Added 46 comprehensive tests (562 total). Typecheck passes."
     },
     {
       "id": "US-020",
