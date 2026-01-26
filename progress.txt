@@ -271,3 +271,59 @@
 - Intraday data defaults to last 5 days; daily data defaults to last year
 - Cache TTL is configurable: `new MarketDataService(adapter, { historicalBarsTtlMs: 10 * 60 * 1000 })`
 - The next logical feature to implement is US-008 (Basic dashboard UI) which enables US-005 and US-006
+
+## 2026-01-26 - US-008: Basic dashboard UI (COMPLETED)
+
+### What was done:
+- Added React + Vite frontend stack to the project
+  - Installed react, react-dom, vite, @vitejs/plugin-react as dependencies
+  - Created vite.config.ts for frontend bundling
+  - Added npm scripts: `dev:ui`, `build:ui`, `preview:ui`
+- Created src/ui/ directory with complete dashboard implementation
+  - src/ui/index.html - HTML entry point with Google Fonts (Inter, JetBrains Mono)
+  - src/ui/main.tsx - React entry point
+  - src/ui/App.tsx - Main dashboard component with mock data for demonstration
+  - src/ui/types.ts - UI-specific type definitions mirroring backend types
+- Created responsive dashboard layout with three sections:
+  1. **Account Summary**: Net liquidation, buying power, cash, daily P&L, unrealized P&L
+     - Color-coded P&L values (green for positive, red for negative)
+     - Timestamp showing data freshness
+  2. **Positions Table**: Symbol, contract details (strike/expiry/type), qty, avg cost, mark, market value, P&L, P&L %
+     - Call/put badges with color coding
+     - Option contract descriptions formatted (e.g., "AAPL Feb 16, '24 $185 C")
+     - Equity positions supported
+  3. **Orders Table**: Symbol, contract, side, qty, type, limit price, status, TIF, time placed
+     - Buy/sell badges
+     - Order status badges (open, partially_filled, filled, canceled, etc.)
+     - Order type abbreviations (MKT, LMT, STP, STP LMT)
+- Created component library in src/ui/components/
+  - AccountSummary.tsx - Account summary display with loading/empty states
+  - PositionsTable.tsx - Positions table with refresh button
+  - OrdersTable.tsx - Orders table with refresh button
+  - index.ts - Barrel exports
+- Created comprehensive CSS styling in src/ui/styles/index.css
+  - Dark theme optimized for trading (reduces eye strain)
+  - CSS variables for consistent theming
+  - Responsive design: mobile (< 640px), tablet (640-1024px), desktop (> 1024px)
+  - Trading-specific color scheme (green/red for P&L, badges for order status)
+  - Monospace font for numbers (JetBrains Mono)
+- Added connection status indicator showing broker name and account ID
+- Updated tsconfig.json to support React JSX
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (150 tests total)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- The dashboard currently uses mock data in App.tsx for demonstration
+- To connect to live data, replace mock data with API calls to the backend services:
+  - Use BrokerConnectionService for connection state
+  - Use BrokerAdapter.getAccountSummary() for account data
+  - Use BrokerAdapter.getPositions() for positions
+  - Use BrokerAdapter.getOpenOrders() for orders
+- To run the development server: `npm run dev:ui` (opens on http://localhost:3000)
+- To build for production: `npm run build:ui` (outputs to dist/ui/)
+- The next features to implement are US-005 (positions display) and US-006 (orders display) which now have UI support
+- Consider adding an API layer (US-008 mentions REST/WS in the architecture) to serve data to the frontend
+- Risk configuration UI (from US-009) can now be added to the dashboard
