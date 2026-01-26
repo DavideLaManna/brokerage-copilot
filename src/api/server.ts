@@ -12,6 +12,7 @@ import { BrokerConnectionService } from '../services/broker-connection.js';
 import { BrokerError, BrokerErrorCode } from '../types/errors.js';
 import { addLiquidityToChain, type OptionChainWithLiquidity } from '../services/liquidity.js';
 import { calculatePortfolioExposure, type PortfolioExposure } from '../services/exposure-calculator.js';
+import { calculatePortfolioGreeks, type PortfolioGreeks } from '../services/portfolio-greeks.js';
 import { DEFAULT_RISK_CONFIG, type RiskConfig } from '../types/risk-config.js';
 
 /**
@@ -260,6 +261,23 @@ export class ApiServer {
           ...exposure,
           concentrationLimit: riskConfig.maxRiskPerUnderlyingPercent,
         }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get portfolio Greeks
+    this.app.get('/api/greeks', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        // Fetch positions
+        const positions = await adapter.getPositions();
+
+        // Calculate portfolio Greeks
+        const greeks = calculatePortfolioGreeks(positions);
+
+        res.json(this.wrapResponse(greeks));
       } catch (error) {
         next(error);
       }

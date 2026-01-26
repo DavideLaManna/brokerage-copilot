@@ -13,6 +13,7 @@ import type {
   OptionContract,
   PortfolioExposure,
   UnderlyingExposure,
+  PortfolioGreeks,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -310,6 +311,17 @@ export const api = {
     const url = `/api/exposure${queryString ? `?${queryString}` : ''}`;
 
     const data = await fetchApi<PortfolioExposure>(url);
+    return {
+      ...data,
+      calculatedAt: new Date(data.calculatedAt),
+    };
+  },
+
+  /**
+   * Get portfolio Greeks
+   */
+  async getGreeks(): Promise<PortfolioGreeks> {
+    const data = await fetchApi<PortfolioGreeks>('/api/greeks');
     return {
       ...data,
       calculatedAt: new Date(data.calculatedAt),

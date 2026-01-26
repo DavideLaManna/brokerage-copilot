@@ -221,8 +221,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive portfolio Greeks aggregation service (src/services/portfolio-greeks.ts) with: (1) calculatePortfolioGreeks() aggregates delta, gamma, theta, vega across all option positions, properly accounting for quantity and contract multiplier (100x); (2) calculateDetailedPortfolioGreeks() provides position-level breakdown and grouping by underlying; (3) Tracks positionsWithGreeks and positionsWithoutGreeks for N/A handling; (4) formatGreekValue() helper returns 'N/A' for missing Greeks; (5) getGreeksInterpretation() provides human-readable hints (e.g., 'Portfolio loses $50/day from time decay'); (6) checkGreeksRisk() flags high-risk Greek exposures with configurable thresholds. Created GreeksPanel UI component (src/ui/components/GreeksPanel.tsx) displaying 4-card grid with Delta (shares equiv.), Gamma (per $1 move), Theta ($/day), Vega (per 1% IV), plus interpretation hints and N/A warnings. Added GET /api/greeks endpoint to API server. Integrated GreeksPanel into dashboard between AccountSummary and ExposurePanel. Works in both demo mode (client-side computation) and live mode (API fetch). Added 33 comprehensive tests (293 total). Typecheck passes. UI builds successfully."
     },
     {
       "id": "US-015",

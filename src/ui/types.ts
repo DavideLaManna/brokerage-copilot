@@ -177,3 +177,18 @@ export interface PortfolioExposure {
   calculatedAt: Date;
   concentrationLimit?: number;
 }
+
+// ============================================================================
+// Portfolio Greeks Types
+// ============================================================================
+
+export interface PortfolioGreeks {
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  positionsWithGreeks: number;
+  positionsWithoutGreeks: number;
+  totalOptionPositions: number;
+  calculatedAt: Date;
+}

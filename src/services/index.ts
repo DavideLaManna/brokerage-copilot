@@ -65,3 +65,16 @@ export {
   type PortfolioExposure,
   type ExposureCalculatorConfig,
 } from './exposure-calculator.js';
+
+export {
+  calculatePortfolioGreeks,
+  calculateDetailedPortfolioGreeks,
+  formatGreekValue,
+  formatPortfolioGreeksForDisplay,
+  getGreeksInterpretation,
+  checkGreeksRisk,
+  type PortfolioGreeks,
+  type GreekValue,
+  type PositionGreeksBreakdown,
+  type DetailedPortfolioGreeks,
+} from './portfolio-greeks.js';

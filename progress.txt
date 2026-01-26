@@ -553,3 +553,69 @@
 - Risk calculations are conservative estimates for unlimited-loss positions (short calls, short equity)
 - The client-side computeExposure() in App.tsx mirrors the backend logic for demo mode
 - Next feature to implement is US-014 (Portfolio Greeks aggregation) which can reuse the aggregated Greeks already computed in the exposure calculator
+
+## 2026-01-26 - US-014: Portfolio Greeks aggregation (COMPLETED)
+
+### What was done:
+- Created src/services/portfolio-greeks.ts with comprehensive Greeks aggregation service
+  - calculatePortfolioGreeks(positions): Aggregates delta, gamma, theta, vega across all option positions
+  - Properly accounts for contract quantity (positive=long, negative=short) and multiplier (100x)
+  - Returns PortfolioGreeks with: delta, gamma, theta, vega, positionsWithGreeks, positionsWithoutGreeks, totalOptionPositions, calculatedAt
+  - calculateDetailedPortfolioGreeks(positions): Provides position-level breakdown and grouping by underlying
+  - Returns DetailedPortfolioGreeks with breakdown array and byUnderlying Map
+  - formatGreekValue(): Helper that returns 'N/A' for missing Greeks
+  - formatPortfolioGreeksForDisplay(): Formats all Greeks with signs for display
+  - getGreeksInterpretation(): Returns human-readable hints about portfolio exposure
+    - e.g., "Long 500 delta-equivalent shares", "Paying $50/day in time decay"
+    - Warns about positions missing Greeks data
+  - checkGreeksRisk(): Flags high-risk Greek exposures with configurable thresholds
+- Created src/ui/components/GreeksPanel.tsx
+  - 4-card grid displaying: Delta (shares equiv.), Gamma (per $1 move), Theta ($/day), Vega (per 1% IV)
+  - Color-coded values (green for positive, red for negative)
+  - Shows total option positions count and N/A count for missing Greeks
+  - Interpretations section below with helpful hints about portfolio exposure
+  - Loading and empty states
+- Added GET /api/greeks endpoint to API server (src/api/server.ts)
+  - Fetches positions from broker and calculates portfolio Greeks
+  - Returns PortfolioGreeks JSON
+- Updated src/ui/App.tsx to integrate GreeksPanel
+  - Added greeks state and computeGreeks() helper for demo mode
+  - Fetches from /api/greeks in live mode with fallback to client-side computation
+  - GreeksPanel displays between AccountSummary and ExposurePanel
+- Updated src/ui/types.ts with PortfolioGreeks interface
+- Updated src/ui/services/api.ts with getGreeks() method
+- Added CSS styles for Greeks panel in src/ui/styles/index.css
+  - .greeks-grid, .greek-card, .greek-label, .greek-sublabel, .greek-value, .greek-unit
+  - .greeks-interpretations, .greeks-interpretation styling
+- Updated exports in src/services/index.ts and src/ui/components/index.ts
+- Added 33 comprehensive tests in src/services/portfolio-greeks.test.ts covering:
+  - calculatePortfolioGreeks: empty positions, single long call, short put, multiple positions
+  - Skipping equity positions (only option positions have Greeks)
+  - Handling missing Greeks (marked as N/A, not included in totals)
+  - Handling partial Greeks (only some Greeks defined)
+  - Handling empty Greeks object
+  - calculateDetailedPortfolioGreeks: position breakdown, grouping by underlying
+  - formatGreekValue: available values, undefined/null, zero, negative
+  - formatPortfolioGreeksForDisplay: all fields formatted correctly
+  - getGreeksInterpretation: delta exposure (long/short/neutral), theta decay, vega sensitivity, missing Greeks warning
+  - checkGreeksRisk: high delta/gamma/theta/vega risk, custom thresholds, negative delta
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (293 tests total - 33 new Greeks tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To use portfolio Greeks service:
+  1. Import: `import { calculatePortfolioGreeks } from './services/portfolio-greeks.js'`
+  2. Calculate: `const greeks = calculatePortfolioGreeks(positions)`
+  3. Access: `greeks.delta`, `greeks.theta`, etc.
+  4. For interpretations: `const hints = getGreeksInterpretation(greeks)`
+  5. For risk checks: `const risk = checkGreeksRisk(greeks, { maxAbsDelta: 1000 })`
+- The API endpoint /api/greeks returns portfolio-level Greeks
+- The GreeksPanel component is now part of the dashboard (between AccountSummary and ExposurePanel)
+- Greeks are aggregated as: Greek * quantity * multiplier (e.g., delta 0.5 * 10 contracts * 100 = 500 delta)
+- Short positions have negative quantity, which flips the Greek signs appropriately
+- Positions without Greeks are tracked separately (positionsWithoutGreeks) for transparency
+- The client-side computeGreeks() in App.tsx mirrors the backend logic for demo mode
+- Next feature to implement is US-015 (TradeProposal schema and storage) which starts the trade recommendation phase

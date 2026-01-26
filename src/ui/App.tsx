@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { AccountSummary, PositionsTable, OrdersTable, ExposurePanel } from './components';
+import { AccountSummary, PositionsTable, OrdersTable, ExposurePanel, GreeksPanel } from './components';
 import { api, ApiError } from './services';
 import type {
   AccountSummary as AccountSummaryType,
@@ -9,6 +9,7 @@ import type {
   PortfolioExposure,
   UnderlyingExposure,
   PositionSummary,
+  PortfolioGreeks,
 } from './types';
 
 // Demo mode flag - set to true to use mock data instead of API
@@ -145,6 +146,66 @@ function computeExposure(
     exceedingLimitCount: exceedingCount,
     calculatedAt: new Date(),
     concentrationLimit,
+  };
+}
+
+/**
+ * Helper function to compute portfolio Greeks on the client side (for demo mode)
+ */
+function computeGreeks(positions: Position[]): PortfolioGreeks | null {
+  let delta = 0;
+  let gamma = 0;
+  let theta = 0;
+  let vega = 0;
+  let positionsWithGreeks = 0;
+  let positionsWithoutGreeks = 0;
+  let totalOptionPositions = 0;
+
+  for (const pos of positions) {
+    if (pos.assetClass !== 'option' || !pos.optionDetails) {
+      continue;
+    }
+
+    totalOptionPositions++;
+    const greeks = pos.optionDetails.greeks;
+    const multiplier = pos.optionDetails.multiplier;
+    const quantity = pos.quantity;
+
+    if (!greeks || (greeks.delta === undefined && greeks.gamma === undefined &&
+        greeks.theta === undefined && greeks.vega === undefined)) {
+      positionsWithoutGreeks++;
+      continue;
+    }
+
+    positionsWithGreeks++;
+
+    if (greeks.delta !== undefined) {
+      delta += greeks.delta * quantity * multiplier;
+    }
+    if (greeks.gamma !== undefined) {
+      gamma += greeks.gamma * quantity * multiplier;
+    }
+    if (greeks.theta !== undefined) {
+      theta += greeks.theta * quantity * multiplier;
+    }
+    if (greeks.vega !== undefined) {
+      vega += greeks.vega * quantity * multiplier;
+    }
+  }
+
+  if (totalOptionPositions === 0) {
+    return null;
+  }
+
+  return {
+    delta: Math.round(delta * 100) / 100,
+    gamma: Math.round(gamma * 100) / 100,
+    theta: Math.round(theta * 100) / 100,
+    vega: Math.round(vega * 100) / 100,
+    positionsWithGreeks,
+    positionsWithoutGreeks,
+    totalOptionPositions,
+    calculatedAt: new Date(),
   };
 }
 
@@ -308,6 +369,7 @@ export default function App(): React.ReactElement {
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [exposure, setExposure] = useState<PortfolioExposure | null>(null);
+  const [greeks, setGreeks] = useState<PortfolioGreeks | null>(null);
   const [connection, setConnection] = useState<ConnectionState>({
     connected: false,
     brokerName: 'Unknown',
@@ -327,8 +389,9 @@ export default function App(): React.ReactElement {
       setPositions(mockPos);
       setOrders([...mockOrders]);
       setConnection({ ...mockConnectionState, lastUpdated: new Date() });
-      // Compute exposure locally for demo mode
+      // Compute exposure and Greeks locally for demo mode
       setExposure(computeExposure(mockPos, mockAccount));
+      setGreeks(computeGreeks(mockPos));
       setError(null);
       return;
     }
@@ -342,7 +405,7 @@ export default function App(): React.ReactElement {
       if (portfolio.connected) {
         const connectionInfo = await api.getConnection();
         setConnection(connectionInfo);
-        // Fetch exposure from API
+        // Fetch exposure and Greeks from API
         try {
           const exposureData = await api.getExposure();
           setExposure(exposureData);
@@ -350,12 +413,20 @@ export default function App(): React.ReactElement {
           // Compute locally if API fails
           setExposure(computeExposure(portfolio.positions, portfolio.account));
         }
+        try {
+          const greeksData = await api.getGreeks();
+          setGreeks(greeksData);
+        } catch {
+          // Compute locally if API fails
+          setGreeks(computeGreeks(portfolio.positions));
+        }
       } else {
         setConnection({
           connected: false,
           brokerName: 'Not connected',
         });
         setExposure(null);
+        setGreeks(null);
       }
       setError(null);
     } catch (err) {
@@ -387,18 +458,25 @@ export default function App(): React.ReactElement {
         setPositions(mockPos);
         setOrders([...mockOrders]);
         setExposure(computeExposure(mockPos, mockAccount));
+        setGreeks(computeGreeks(mockPos));
         setError(null);
       } else {
         const portfolio = await api.refresh();
         setAccountSummary(portfolio.account);
         setPositions(portfolio.positions);
         setOrders(portfolio.orders);
-        // Refresh exposure data
+        // Refresh exposure and Greeks data
         try {
           const exposureData = await api.getExposure();
           setExposure(exposureData);
         } catch {
           setExposure(computeExposure(portfolio.positions, portfolio.account));
+        }
+        try {
+          const greeksData = await api.getGreeks();
+          setGreeks(greeksData);
+        } catch {
+          setGreeks(computeGreeks(portfolio.positions));
         }
         setError(null);
       }
@@ -470,6 +548,12 @@ export default function App(): React.ReactElement {
 
       <div className="dashboard-grid">
         <AccountSummary data={accountSummary} loading={loading} />
+
+        <GreeksPanel
+          greeks={greeks}
+          loading={loading}
+          onRefresh={handleRefresh}
+        />
 
         <ExposurePanel
           exposure={exposure}
