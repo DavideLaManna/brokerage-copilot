@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { AccountSummary, PositionsTable, OrdersTable } from './components';
+import { api, ApiError } from './services';
 import type {
   AccountSummary as AccountSummaryType,
   Position,
@@ -7,8 +8,10 @@ import type {
   ConnectionState,
 } from './types';
 
-// Mock data for demonstration
-// In production, this would come from the API/backend
+// Demo mode flag - set to true to use mock data instead of API
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+
+// Mock data for demonstration/offline mode
 const mockAccountSummary: AccountSummaryType = {
   netLiquidation: 125432.87,
   buyingPower: 98234.56,
@@ -158,28 +161,108 @@ const mockOrders: Order[] = [
 
 const mockConnectionState: ConnectionState = {
   connected: true,
-  brokerName: 'Tradier',
-  accountId: 'VA12345678',
+  brokerName: 'Tradier (Demo)',
+  accountId: 'DEMO123456',
   lastUpdated: new Date(),
 };
 
 export default function App(): React.ReactElement {
-  const [accountSummary, setAccountSummary] = useState<AccountSummaryType | null>(mockAccountSummary);
-  const [positions, setPositions] = useState<Position[]>(mockPositions);
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
-  const [connection] = useState<ConnectionState>(mockConnectionState);
-  const [loading, setLoading] = useState(false);
+  const [accountSummary, setAccountSummary] = useState<AccountSummaryType | null>(null);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [connection, setConnection] = useState<ConnectionState>({
+    connected: false,
+    brokerName: 'Unknown',
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleRefresh = useCallback(() => {
-    setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
+  /**
+   * Fetch portfolio data from API or use mock data
+   */
+  const fetchPortfolio = useCallback(async () => {
+    if (DEMO_MODE) {
+      // Use mock data in demo mode
       setAccountSummary({ ...mockAccountSummary, asOf: new Date() });
       setPositions([...mockPositions]);
       setOrders([...mockOrders]);
-      setLoading(false);
-    }, 500);
+      setConnection({ ...mockConnectionState, lastUpdated: new Date() });
+      setError(null);
+      return;
+    }
+
+    try {
+      const portfolio = await api.getPortfolio();
+      setAccountSummary(portfolio.account);
+      setPositions(portfolio.positions);
+      setOrders(portfolio.orders);
+
+      if (portfolio.connected) {
+        const connectionInfo = await api.getConnection();
+        setConnection(connectionInfo);
+      } else {
+        setConnection({
+          connected: false,
+          brokerName: 'Not connected',
+        });
+      }
+      setError(null);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.statusCode === 503) {
+          setError('Not connected to broker. Please connect first.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Failed to connect to API server. Is it running?');
+      }
+      // Keep existing data if any
+    }
   }, []);
+
+  /**
+   * Handle refresh button click
+   */
+  const handleRefresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (DEMO_MODE) {
+        // Simulate API delay in demo mode
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        setAccountSummary({ ...mockAccountSummary, asOf: new Date() });
+        setPositions([...mockPositions]);
+        setOrders([...mockOrders]);
+        setError(null);
+      } else {
+        const portfolio = await api.refresh();
+        setAccountSummary(portfolio.account);
+        setPositions(portfolio.positions);
+        setOrders(portfolio.orders);
+        setError(null);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Failed to refresh data');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Initial data load
+   */
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      await fetchPortfolio();
+      setLoading(false);
+    };
+    loadData();
+  }, [fetchPortfolio]);
 
   return (
     <div className="dashboard">
@@ -188,6 +271,7 @@ export default function App(): React.ReactElement {
           <h1 className="dashboard-title">Options Trading Copilot</h1>
           <p className="dashboard-subtitle">
             Portfolio overview and trade management
+            {DEMO_MODE && <span className="demo-badge"> (Demo Mode)</span>}
           </p>
         </div>
         <div className="connection-status">
@@ -208,6 +292,20 @@ export default function App(): React.ReactElement {
           )}
         </div>
       </header>
+
+      {error && (
+        <div className="error-banner">
+          <span className="error-icon">⚠</span>
+          <span>{error}</span>
+          <button
+            className="error-dismiss"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="dashboard-grid">
         <AccountSummary data={accountSummary} loading={loading} />

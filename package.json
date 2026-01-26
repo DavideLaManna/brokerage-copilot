@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "ts-node src/index.ts",
+    "dev:api": "ts-node src/api/cli.ts",
     "dev:ui": "vite",
     "preview:ui": "vite preview",
     "lint": "eslint src --ext .ts,.tsx"
@@ -24,6 +25,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.10.0",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
@@ -36,7 +39,9 @@
     "vitest": "^1.0.0"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^16.3.0",
+    "express": "^5.2.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "zod": "^3.22.0"

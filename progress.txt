@@ -327,3 +327,54 @@
 - The next features to implement are US-005 (positions display) and US-006 (orders display) which now have UI support
 - Consider adding an API layer (US-008 mentions REST/WS in the architecture) to serve data to the frontend
 - Risk configuration UI (from US-009) can now be added to the dashboard
+
+## 2026-01-26 - US-005 & US-006: Fetch and display positions/orders (COMPLETED)
+
+### What was done:
+- Created Express.js API server (src/api/) to bridge frontend and backend services
+  - src/api/server.ts - ApiServer class with CORS, JSON parsing, error handling
+  - src/api/index.ts - Module exports
+  - src/api/cli.ts - CLI entry point for standalone API server
+- Implemented REST API endpoints:
+  - GET /api/health - Health check
+  - GET /api/connection - Connection status info
+  - POST /api/connect - Connect to broker
+  - POST /api/disconnect - Disconnect from broker
+  - GET /api/account - Fetch account summary
+  - GET /api/positions - Fetch open positions
+  - GET /api/orders - Fetch open orders
+  - GET /api/portfolio - Fetch all portfolio data (account + positions + orders)
+  - POST /api/refresh - Refresh all data
+- Created UI API client service (src/ui/services/)
+  - src/ui/services/api.ts - Typed fetch wrapper with date parsing and error handling
+  - ApiError class for structured error handling
+  - Configurable base URL via VITE_API_URL env var
+- Updated React frontend (src/ui/App.tsx):
+  - Replaced mock data with API calls
+  - Added useEffect for initial data load
+  - Added error state with dismissible error banner
+  - Added demo mode (VITE_DEMO_MODE=true) for offline development
+  - Proper loading states during data fetching
+- Added CSS styles for error banner and demo badge
+- Added npm script: `npm run dev:api` to start API server
+- Installed Express.js and CORS dependencies
+- Updated tsconfig.json to exclude UI files (handled by Vite)
+- Created 17 new tests for API server (src/api/server.test.ts)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (167 tests total)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To run the full stack:
+  1. Start API server: `npm run dev:api` (runs on http://localhost:3001)
+  2. Start UI dev server: `npm run dev:ui` (runs on http://localhost:5173)
+  3. Ensure broker credentials are configured via SecretManager
+- For demo/development without real broker:
+  - Set VITE_DEMO_MODE=true in your environment or .env file
+  - The UI will use mock data instead of calling the API
+- API server requires SECRETS_MASTER_PASSWORD env var to decrypt credentials
+- The frontend automatically detects disconnected state and shows error banner
+- Both positions and orders are fetched in parallel for performance via /api/portfolio
+- The next feature to implement is US-011 (Risk engine - pre-trade validation)
