@@ -266,8 +266,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive get_option_chain MCP tool (src/tools/option-chain.ts). (1) Implements get_option_chain(symbol, minDTE, maxDTE, minStrike, maxStrike) tool with full input validation via Zod schema. (2) Returns OptionChainSnapshot with: underlying symbol/price, expirations grouped by DTE (nearest first), contracts split into calls/puts sorted by strike, each contract includes optionSymbol, strike, expiration (ISO string), daysToExpiration, bid/ask/mid/last, volume, openInterest, multiplier, Greeks (delta, gamma, theta, vega, rho, IV), and liquidity metrics (spread, spreadPercent, rating, lowLiquidityWarning, description). (3) Filters by DTE range via minDTE/maxDTE params. (4) Includes data timestamp and source information. (5) Per-expiration summary: totalContracts, callCount, putCount, highLiquidityCount, lowLiquidityWarningCount, averageSpreadPercent. (6) Overall chain summary: totalExpirations, totalContracts, all liquidity rating counts (high/medium/low/very_low), lowLiquidityWarningCount, averageSpreadPercent, minDTE, maxDTE. (7) createOptionChainTool() creates MCP tool definition with handler. (8) getOptionChain() standalone function for direct API use. Added to tool registry exports. Added 34 comprehensive tests (436 total). Typecheck passes."
     },
     {
       "id": "US-018",

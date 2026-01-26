@@ -28,10 +28,23 @@ export {
   resetGlobalRegistry,
 } from './registry.js';
 
-// Tools
+// Tools - Portfolio Snapshot
 export {
   createPortfolioSnapshotTool,
   buildPortfolioSnapshot,
   getPortfolioSnapshot,
   type PortfolioSnapshotToolContext,
 } from './portfolio-snapshot.js';
+
+// Tools - Option Chain
+export {
+  createOptionChainTool,
+  buildOptionChainSnapshot,
+  getOptionChain,
+  GetOptionChainInputSchema,
+  type OptionChainToolContext,
+  type GetOptionChainInput,
+  type OptionChainSnapshot,
+  type SnapshotOptionContract,
+  type SnapshotExpiration,
+} from './option-chain.js';

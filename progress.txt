@@ -751,3 +751,61 @@
 - Tool input is validated via Zod schema before execution
 - Handler errors are caught and returned as structured error responses
 - Next feature to implement is US-017 (LLM tool - get option chain)
+
+## 2026-01-26 - US-017: LLM tool - get option chain (COMPLETED)
+
+### What was done:
+- Created src/tools/option-chain.ts with comprehensive get_option_chain MCP tool
+  - SnapshotOptionContract type: optionSymbol, underlying, strike, expiration (ISO), daysToExpiration, optionType, bid/ask/mid/last, volume, openInterest, multiplier, Greeks, liquidity metrics
+  - SnapshotExpiration type: expiration, daysToExpiration, calls[], puts[], summary stats
+  - OptionChainSnapshot type: underlying, underlyingPrice, expirations[], summary, request params, dataTimestamp, dataSources
+  - GetOptionChainInputSchema (Zod): symbol (required), minDTE, maxDTE, minStrike, maxStrike (all optional)
+- Implemented buildOptionChainSnapshot():
+  - Fetches option chain from broker adapter
+  - Adds liquidity metrics to all contracts via addLiquidityToChain()
+  - Groups contracts by expiration
+  - Splits calls and puts, sorts by strike (ascending)
+  - Sorts expirations by DTE (nearest first)
+  - Calculates per-expiration summary: totalContracts, callCount, putCount, highLiquidityCount, lowLiquidityWarningCount, averageSpreadPercent
+  - Calculates overall summary: totalExpirations, totalContracts, call/put counts, all liquidity rating counts, warningCount, averageSpreadPercent, minDTE, maxDTE
+  - Converts dates to ISO strings for JSON serialization
+  - Includes request parameters in response for reference
+  - Includes data timestamp and source information
+- Implemented createOptionChainTool():
+  - Creates MCP tool definition with name, description, inputSchema, handler
+  - Handler validates input, checks adapter connection, builds snapshot
+  - Returns MCPToolResult with success/error, data, timestamp, metadata
+  - Metadata includes: underlying, underlyingPrice, expirationCount, contractCount, callCount, putCount, highLiquidityCount, lowLiquidityWarningCount
+- Implemented getOptionChain() standalone function for direct API use
+- Updated src/tools/index.ts with all option chain exports
+- Created src/tools/option-chain.test.ts with 34 comprehensive tests covering:
+  - Input schema validation (valid inputs, empty symbol, negative DTE, etc.)
+  - buildOptionChainSnapshot: complete snapshot, liquidity metrics, Greeks, empty chain, DTE calculation, expiration summaries, liquidity rating counts, DTE range tracking
+  - createOptionChainTool: tool definition, successful execution, not connected error, invalid input, adapter errors, metadata, DTE filters, custom liquidity config
+  - getOptionChain standalone function
+  - Tool registry integration
+  - Low liquidity handling and flagging
+  - Contract sorting (expirations by DTE, contracts by strike)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (436 tests total - 34 new option chain tool tests)
+
+### Notes for next developer:
+- To use the get_option_chain tool:
+  1. Create context: `const context = { adapter: brokerAdapter, liquidityConfig?: customConfig }`
+  2. Create tool: `const tool = createOptionChainTool(context)`
+  3. Register: `registry.register(tool)`
+  4. Execute: `const result = await registry.execute('get_option_chain', { symbol: 'AAPL', minDTE: 7, maxDTE: 45 })`
+- Or use standalone function: `const snapshot = await getOptionChain(adapter, { symbol: 'AAPL', minDTE: 0, maxDTE: 45 })`
+- The snapshot includes:
+  - Full contract data with bid/ask, volume, OI, Greeks (when available)
+  - Liquidity metrics for every contract (spread, spreadPercent, rating, warning)
+  - Contracts organized by expiration with calls/puts split
+  - Summary statistics for quick overview
+  - Request parameters echoed back for reference
+  - Data timestamp and source for audit trail
+- Liquidity ratings: high (tight spread + good volume/OI), medium, low, very_low
+- lowLiquidityWarning flag when spread > 5% (configurable)
+- All dates are serialized as ISO strings for JSON compatibility
+- Next feature to implement is US-018 (LLM tool - compute technical indicators)
