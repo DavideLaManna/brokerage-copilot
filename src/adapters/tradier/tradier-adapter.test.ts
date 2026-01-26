@@ -600,6 +600,244 @@ describe('TradierAdapter', () => {
       expect(true).toBe(true);
     });
   });
+
+  describe('getHistoricalBars', () => {
+    it('should return daily historical bars', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          history: {
+            day: [
+              {
+                date: '2024-01-15',
+                open: 150.0,
+                high: 152.5,
+                low: 149.0,
+                close: 151.5,
+                volume: 1000000,
+              },
+              {
+                date: '2024-01-16',
+                open: 151.5,
+                high: 153.0,
+                low: 150.5,
+                close: 152.0,
+                volume: 1200000,
+              },
+            ],
+          },
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'daily',
+      });
+
+      expect(result.symbol).toBe('AAPL');
+      expect(result.interval).toBe('daily');
+      expect(result.bars).toHaveLength(2);
+      expect(result.bars[0].open).toBe(150.0);
+      expect(result.bars[0].high).toBe(152.5);
+      expect(result.bars[0].low).toBe(149.0);
+      expect(result.bars[0].close).toBe(151.5);
+      expect(result.bars[0].volume).toBe(1000000);
+    });
+
+    it('should return empty bars when no history', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          history: null,
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'daily',
+      });
+
+      expect(result.bars).toEqual([]);
+    });
+
+    it('should return weekly historical bars', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          history: {
+            day: {
+              date: '2024-01-15',
+              open: 150.0,
+              high: 155.0,
+              low: 148.0,
+              close: 153.0,
+              volume: 5000000,
+            },
+          },
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'weekly',
+      });
+
+      expect(result.interval).toBe('weekly');
+      expect(result.bars).toHaveLength(1);
+    });
+
+    it('should return intraday bars using timesales endpoint', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          series: {
+            data: [
+              {
+                time: '2024-01-15T10:00:00',
+                timestamp: 1705316400,
+                open: 150.0,
+                high: 150.5,
+                low: 149.5,
+                close: 150.25,
+                volume: 10000,
+                vwap: 150.1,
+              },
+              {
+                time: '2024-01-15T10:01:00',
+                timestamp: 1705316460,
+                open: 150.25,
+                high: 150.75,
+                low: 150.0,
+                close: 150.5,
+                volume: 12000,
+                vwap: 150.35,
+              },
+            ],
+          },
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'minute',
+      });
+
+      expect(result.symbol).toBe('AAPL');
+      expect(result.interval).toBe('minute');
+      expect(result.bars).toHaveLength(2);
+      expect(result.bars[0].vwap).toBe(150.1);
+    });
+
+    it('should return empty bars when no timesales data', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          series: null,
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'minute',
+      });
+
+      expect(result.bars).toEqual([]);
+    });
+
+    it('should aggregate minute bars to hourly', async () => {
+      // Create 60 minute bars for one hour
+      const minuteBars = [];
+      const baseTimestamp = 1705316400; // 10:00 AM
+      for (let i = 0; i < 60; i++) {
+        minuteBars.push({
+          time: `2024-01-15T10:${i.toString().padStart(2, '0')}:00`,
+          timestamp: baseTimestamp + i * 60,
+          open: 150.0 + i * 0.01,
+          high: 150.5 + i * 0.01,
+          low: 149.5 + i * 0.01,
+          close: 150.25 + i * 0.01,
+          volume: 1000,
+        });
+      }
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          series: {
+            data: minuteBars,
+          },
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'hourly',
+      });
+
+      expect(result.interval).toBe('hourly');
+      expect(result.bars.length).toBeGreaterThan(0);
+      // Aggregated hourly bar should have sum of volumes
+      expect(result.bars[0].volume).toBe(60000); // 60 bars * 1000
+    });
+
+    it('should respect limit parameter', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          history: {
+            day: [
+              { date: '2024-01-10', open: 148, high: 149, low: 147, close: 148.5, volume: 900000 },
+              { date: '2024-01-11', open: 148.5, high: 150, low: 148, close: 149, volume: 950000 },
+              { date: '2024-01-12', open: 149, high: 151, low: 148.5, close: 150, volume: 1000000 },
+              { date: '2024-01-15', open: 150, high: 152.5, low: 149, close: 151.5, volume: 1100000 },
+              { date: '2024-01-16', open: 151.5, high: 153, low: 150.5, close: 152, volume: 1200000 },
+            ],
+          },
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'daily',
+        limit: 3,
+      });
+
+      expect(result.bars).toHaveLength(3);
+      // Should return the most recent 3 bars (oldest first after slicing)
+      expect(result.bars[2].close).toBe(152); // Most recent
+    });
+
+    it('should sort bars chronologically', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          history: {
+            day: [
+              { date: '2024-01-16', open: 151.5, high: 153, low: 150.5, close: 152, volume: 1200000 },
+              { date: '2024-01-15', open: 150, high: 152.5, low: 149, close: 151.5, volume: 1100000 },
+            ],
+          },
+        }),
+      });
+
+      const result = await adapter.getHistoricalBars({
+        symbol: 'AAPL',
+        interval: 'daily',
+      });
+
+      // Should be sorted oldest first
+      expect(result.bars[0].close).toBe(151.5); // Jan 15
+      expect(result.bars[1].close).toBe(152); // Jan 16
+    });
+  });
 });
 
 describe('createTradierAdapter', () => {

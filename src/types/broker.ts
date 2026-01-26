@@ -247,6 +247,63 @@ export interface OptionChainRequest {
 }
 
 // ============================================================================
+// Historical Price Data Types
+// ============================================================================
+
+/** Supported time intervals for historical bars */
+export type BarInterval = 'minute' | '5min' | '15min' | 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+/**
+ * A single price bar (OHLCV candlestick)
+ */
+export interface HistoricalBar {
+  /** Bar timestamp (start of the period) */
+  timestamp: Date;
+  /** Opening price */
+  open: number;
+  /** Highest price during period */
+  high: number;
+  /** Lowest price during period */
+  low: number;
+  /** Closing price */
+  close: number;
+  /** Trading volume during period */
+  volume: number;
+  /** Volume-weighted average price (if available) */
+  vwap?: number;
+}
+
+/**
+ * Request parameters for historical bars
+ */
+export interface HistoricalBarsRequest {
+  /** Ticker symbol */
+  symbol: string;
+  /** Time interval for bars */
+  interval: BarInterval;
+  /** Start date for historical data */
+  start?: Date;
+  /** End date for historical data (defaults to now) */
+  end?: Date;
+  /** Number of bars to retrieve (alternative to start/end) */
+  limit?: number;
+}
+
+/**
+ * Response containing historical bar data
+ */
+export interface HistoricalBarsResponse {
+  /** Ticker symbol */
+  symbol: string;
+  /** Time interval */
+  interval: BarInterval;
+  /** Array of price bars, sorted chronologically (oldest first) */
+  bars: HistoricalBar[];
+  /** Timestamp when data was retrieved */
+  asOf: Date;
+}
+
+// ============================================================================
 // Broker Adapter Interface
 // ============================================================================
 
@@ -330,6 +387,13 @@ export interface BrokerAdapter {
    * @returns Option chain data
    */
   getOptionChain(request: OptionChainRequest): Promise<OptionChain>;
+
+  /**
+   * Get historical price bars for technical analysis.
+   * @param request - Historical bars request parameters
+   * @returns Historical bars data
+   */
+  getHistoricalBars(request: HistoricalBarsRequest): Promise<HistoricalBarsResponse>;
 
   // -------------------------------------------------------------------------
   // Connection Management
@@ -419,4 +483,32 @@ export const OptionChainRequestSchema = z.object({
   maxDTE: z.number().int().positive().optional(),
   minStrike: z.number().positive().optional(),
   maxStrike: z.number().positive().optional(),
+});
+
+export const BarIntervalSchema = z.enum([
+  'minute',
+  '5min',
+  '15min',
+  'hourly',
+  'daily',
+  'weekly',
+  'monthly',
+]);
+
+export const HistoricalBarSchema = z.object({
+  timestamp: z.date(),
+  open: z.number(),
+  high: z.number(),
+  low: z.number(),
+  close: z.number(),
+  volume: z.number().int().nonnegative(),
+  vwap: z.number().optional(),
+});
+
+export const HistoricalBarsRequestSchema = z.object({
+  symbol: z.string().min(1),
+  interval: BarIntervalSchema,
+  start: z.date().optional(),
+  end: z.date().optional(),
+  limit: z.number().int().positive().optional(),
 });

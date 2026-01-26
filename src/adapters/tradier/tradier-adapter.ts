@@ -29,6 +29,10 @@ import type {
   TimeInForce,
   OptionContract,
   Greeks,
+  HistoricalBarsRequest,
+  HistoricalBarsResponse,
+  HistoricalBar,
+  BarInterval,
 } from '../../types/broker.js';
 import {
   BrokerError,
@@ -250,6 +254,38 @@ interface TradierOrderResponse {
     status: string;
     partner_id: string;
   };
+}
+
+interface TradierHistoryBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface TradierHistory {
+  history: {
+    day: TradierHistoryBar | TradierHistoryBar[] | null;
+  } | null;
+}
+
+interface TradierTimeSeriesBar {
+  time: string;
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  vwap?: number;
+}
+
+interface TradierTimeSeries {
+  series: {
+    data: TradierTimeSeriesBar | TradierTimeSeriesBar[] | null;
+  } | null;
 }
 
 /**
@@ -679,6 +715,236 @@ export class TradierAdapter implements BrokerAdapter {
       contracts,
       asOf: new Date(),
     };
+  }
+
+  /**
+   * Get historical price bars for technical analysis
+   *
+   * Tradier provides two endpoints:
+   * - /markets/history - Daily/weekly/monthly bars
+   * - /markets/timesales - Intraday bars (minute, 5min, 15min)
+   */
+  async getHistoricalBars(request: HistoricalBarsRequest): Promise<HistoricalBarsResponse> {
+    const { symbol, interval, start, end, limit } = request;
+
+    // Determine if we need intraday or daily+ data
+    const isIntraday = ['minute', '5min', '15min', 'hourly'].includes(interval);
+
+    if (isIntraday) {
+      return this.getIntradayBars(symbol, interval, start, end, limit);
+    } else {
+      return this.getDailyBars(symbol, interval, start, end, limit);
+    }
+  }
+
+  /**
+   * Get intraday bars using /markets/timesales endpoint
+   */
+  private async getIntradayBars(
+    symbol: string,
+    interval: BarInterval,
+    start?: Date,
+    end?: Date,
+    limit?: number
+  ): Promise<HistoricalBarsResponse> {
+    // Map interval to Tradier timesales interval
+    const intervalMap: Record<string, string> = {
+      minute: '1min',
+      '5min': '5min',
+      '15min': '15min',
+      hourly: '1min', // Tradier doesn't have hourly, we'll aggregate from 1min
+    };
+    const tradierInterval = intervalMap[interval] ?? '1min';
+
+    // Build query parameters
+    const params = new URLSearchParams({
+      symbol,
+      interval: tradierInterval,
+      session_filter: 'all',
+    });
+
+    // Set date range - default to last 5 days for intraday
+    const endDate = end ?? new Date();
+    const startDate = start ?? new Date(endDate.getTime() - 5 * 24 * 60 * 60 * 1000);
+
+    params.set('start', this.formatDateTime(startDate));
+    params.set('end', this.formatDateTime(endDate));
+
+    const response = await this.request<TradierTimeSeries>(
+      `/markets/timesales?${params.toString()}`
+    );
+
+    let bars: HistoricalBar[] = [];
+
+    if (response.series?.data) {
+      const data = Array.isArray(response.series.data)
+        ? response.series.data
+        : [response.series.data];
+
+      bars = data.map((bar): HistoricalBar => ({
+        timestamp: new Date(bar.timestamp * 1000),
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+        vwap: bar.vwap,
+      }));
+
+      // If hourly, aggregate 1-minute bars to hourly
+      if (interval === 'hourly') {
+        bars = this.aggregateToHourly(bars);
+      }
+
+      // Sort chronologically (oldest first)
+      bars.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+      // Apply limit if specified
+      if (limit && bars.length > limit) {
+        bars = bars.slice(-limit);
+      }
+    }
+
+    return {
+      symbol,
+      interval,
+      bars,
+      asOf: new Date(),
+    };
+  }
+
+  /**
+   * Get daily/weekly/monthly bars using /markets/history endpoint
+   */
+  private async getDailyBars(
+    symbol: string,
+    interval: BarInterval,
+    start?: Date,
+    end?: Date,
+    limit?: number
+  ): Promise<HistoricalBarsResponse> {
+    // Map interval to Tradier history interval
+    const intervalMap: Record<string, string> = {
+      daily: 'daily',
+      weekly: 'weekly',
+      monthly: 'monthly',
+    };
+    const tradierInterval = intervalMap[interval] ?? 'daily';
+
+    // Build query parameters
+    const params = new URLSearchParams({
+      symbol,
+      interval: tradierInterval,
+    });
+
+    // Set date range
+    // Default to 1 year for daily, 5 years for weekly/monthly
+    const endDate = end ?? new Date();
+    const defaultDays = interval === 'daily' ? 365 : interval === 'weekly' ? 365 * 5 : 365 * 10;
+    const startDate = start ?? new Date(endDate.getTime() - defaultDays * 24 * 60 * 60 * 1000);
+
+    params.set('start', this.formatDate(startDate));
+    params.set('end', this.formatDate(endDate));
+
+    const response = await this.request<TradierHistory>(
+      `/markets/history?${params.toString()}`
+    );
+
+    let bars: HistoricalBar[] = [];
+
+    if (response.history?.day) {
+      const data = Array.isArray(response.history.day)
+        ? response.history.day
+        : [response.history.day];
+
+      bars = data.map((bar): HistoricalBar => ({
+        timestamp: new Date(bar.date),
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume,
+      }));
+
+      // Sort chronologically (oldest first)
+      bars.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+      // Apply limit if specified
+      if (limit && bars.length > limit) {
+        bars = bars.slice(-limit);
+      }
+    }
+
+    return {
+      symbol,
+      interval,
+      bars,
+      asOf: new Date(),
+    };
+  }
+
+  /**
+   * Aggregate minute bars to hourly bars
+   */
+  private aggregateToHourly(minuteBars: HistoricalBar[]): HistoricalBar[] {
+    if (minuteBars.length === 0) return [];
+
+    const hourlyMap = new Map<string, HistoricalBar[]>();
+
+    for (const bar of minuteBars) {
+      // Create hour key: YYYY-MM-DD-HH
+      const hourKey = `${bar.timestamp.getFullYear()}-${bar.timestamp.getMonth()}-${bar.timestamp.getDate()}-${bar.timestamp.getHours()}`;
+
+      if (!hourlyMap.has(hourKey)) {
+        hourlyMap.set(hourKey, []);
+      }
+      hourlyMap.get(hourKey)!.push(bar);
+    }
+
+    const hourlyBars: HistoricalBar[] = [];
+
+    for (const bars of hourlyMap.values()) {
+      if (bars.length === 0) continue;
+
+      // Sort by timestamp to get correct OHLC
+      bars.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+      const firstBar = bars[0]!;
+      const lastBar = bars[bars.length - 1]!;
+
+      // Set timestamp to the start of the hour
+      const hourStart = new Date(firstBar.timestamp);
+      hourStart.setMinutes(0, 0, 0);
+
+      hourlyBars.push({
+        timestamp: hourStart,
+        open: firstBar.open,
+        high: Math.max(...bars.map(b => b.high)),
+        low: Math.min(...bars.map(b => b.low)),
+        close: lastBar.close,
+        volume: bars.reduce((sum, b) => sum + b.volume, 0),
+        // VWAP calculation would require price*volume data, skip for aggregation
+      });
+    }
+
+    return hourlyBars;
+  }
+
+  /**
+   * Format date as YYYY-MM-DD for Tradier history API
+   */
+  private formatDate(date: Date): string {
+    return date.toISOString().split('T')[0]!;
+  }
+
+  /**
+   * Format datetime as YYYY-MM-DD HH:MM for Tradier timesales API
+   */
+  private formatDateTime(date: Date): string {
+    const d = this.formatDate(date);
+    const h = date.getHours().toString().padStart(2, '0');
+    const m = date.getMinutes().toString().padStart(2, '0');
+    return `${d} ${h}:${m}`;
   }
 
   /**

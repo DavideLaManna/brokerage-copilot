@@ -18,6 +18,8 @@ import type {
   OptionChain,
   OptionChainRequest,
   Quote,
+  HistoricalBarsRequest,
+  HistoricalBarsResponse,
 } from '../types/broker.js';
 
 /**
@@ -47,17 +49,23 @@ export interface MarketDataServiceConfig {
   optionChainTtlMs?: number;
   /** TTL for quote cache in milliseconds (default: 1 minute) */
   quoteTtlMs?: number;
+  /** TTL for historical bars cache in milliseconds (default: 5 minutes for intraday, 1 hour for daily) */
+  historicalBarsTtlMs?: number;
   /** Maximum number of cached option chains (default: 100) */
   maxOptionChainEntries?: number;
   /** Maximum number of cached quotes (default: 500) */
   maxQuoteEntries?: number;
+  /** Maximum number of cached historical bar responses (default: 200) */
+  maxHistoricalBarsEntries?: number;
 }
 
 const DEFAULT_CONFIG: Required<MarketDataServiceConfig> = {
   optionChainTtlMs: 10 * 60 * 1000, // 10 minutes
   quoteTtlMs: 60 * 1000, // 1 minute
+  historicalBarsTtlMs: 5 * 60 * 1000, // 5 minutes (for intraday; daily data uses longer TTL dynamically)
   maxOptionChainEntries: 100,
   maxQuoteEntries: 500,
+  maxHistoricalBarsEntries: 200,
 };
 
 /**
@@ -82,6 +90,20 @@ function getQuoteCacheKey(symbol: string): string {
 }
 
 /**
+ * Generate cache key for historical bars request
+ */
+function getHistoricalBarsCacheKey(request: HistoricalBarsRequest): string {
+  const parts = [
+    request.symbol,
+    request.interval,
+    request.start?.toISOString() ?? '',
+    request.end?.toISOString() ?? '',
+    request.limit?.toString() ?? '',
+  ];
+  return `bars:${parts.join(':')}`;
+}
+
+/**
  * Market Data Service with caching
  *
  * Provides cached access to market data from a broker adapter.
@@ -94,11 +116,14 @@ export class MarketDataService {
 
   private optionChainCache: Map<string, CacheEntry<OptionChain>> = new Map();
   private quoteCache: Map<string, CacheEntry<Quote>> = new Map();
+  private historicalBarsCache: Map<string, CacheEntry<HistoricalBarsResponse>> = new Map();
 
   private optionChainHits = 0;
   private optionChainMisses = 0;
   private quoteHits = 0;
   private quoteMisses = 0;
+  private historicalBarsHits = 0;
+  private historicalBarsMisses = 0;
 
   constructor(adapter: BrokerAdapter, config: MarketDataServiceConfig = {}) {
     this.adapter = adapter;
@@ -227,6 +252,56 @@ export class MarketDataService {
   }
 
   /**
+   * Get historical price bars with caching
+   *
+   * @param request - Historical bars request parameters
+   * @param forceRefresh - If true, bypass cache and fetch fresh data
+   * @returns Historical bars data (potentially cached)
+   */
+  async getHistoricalBars(
+    request: HistoricalBarsRequest,
+    forceRefresh = false
+  ): Promise<HistoricalBarsResponse> {
+    const cacheKey = getHistoricalBarsCacheKey(request);
+
+    // Check cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cached = this.historicalBarsCache.get(cacheKey);
+      if (cached && !this.isExpired(cached)) {
+        this.historicalBarsHits++;
+        return cached.data;
+      }
+    }
+
+    // Cache miss or expired - fetch fresh data
+    this.historicalBarsMisses++;
+    const barsResponse = await this.adapter.getHistoricalBars(request);
+
+    // Calculate TTL based on interval type
+    // Daily/weekly/monthly data changes less frequently, use longer TTL
+    const isIntraday = ['minute', '5min', '15min', 'hourly'].includes(request.interval);
+    const ttlMs = isIntraday
+      ? this.config.historicalBarsTtlMs
+      : Math.max(this.config.historicalBarsTtlMs, 60 * 60 * 1000); // At least 1 hour for daily+
+
+    // Store in cache
+    const now = new Date();
+    this.historicalBarsCache.set(cacheKey, {
+      data: barsResponse,
+      cachedAt: now,
+      expiresAt: new Date(now.getTime() + ttlMs),
+    });
+
+    // Enforce max entries (LRU-style eviction)
+    this.evictOldestIfNeeded(
+      this.historicalBarsCache,
+      this.config.maxHistoricalBarsEntries
+    );
+
+    return barsResponse;
+  }
+
+  /**
    * Get option chain cache statistics
    */
   getOptionChainCacheStats(): CacheStats {
@@ -253,11 +328,25 @@ export class MarketDataService {
   }
 
   /**
+   * Get historical bars cache statistics
+   */
+  getHistoricalBarsCacheStats(): CacheStats {
+    const total = this.historicalBarsHits + this.historicalBarsMisses;
+    return {
+      hits: this.historicalBarsHits,
+      misses: this.historicalBarsMisses,
+      entries: this.historicalBarsCache.size,
+      hitRate: total > 0 ? this.historicalBarsHits / total : 0,
+    };
+  }
+
+  /**
    * Clear all caches
    */
   clearCache(): void {
     this.optionChainCache.clear();
     this.quoteCache.clear();
+    this.historicalBarsCache.clear();
   }
 
   /**
@@ -275,6 +364,13 @@ export class MarketDataService {
   }
 
   /**
+   * Clear only historical bars cache
+   */
+  clearHistoricalBarsCache(): void {
+    this.historicalBarsCache.clear();
+  }
+
+  /**
    * Invalidate cache for a specific symbol
    *
    * @param symbol - Symbol to invalidate (removes all related cache entries)
@@ -287,6 +383,13 @@ export class MarketDataService {
     for (const key of this.optionChainCache.keys()) {
       if (key.startsWith(`chain:${symbol}:`)) {
         this.optionChainCache.delete(key);
+      }
+    }
+
+    // Remove any historical bars entries for this symbol
+    for (const key of this.historicalBarsCache.keys()) {
+      if (key.startsWith(`bars:${symbol}:`)) {
+        this.historicalBarsCache.delete(key);
       }
     }
   }

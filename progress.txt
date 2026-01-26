@@ -229,3 +229,45 @@
   4. Get cache stats: `const stats = marketData.getOptionChainCacheStats()`
 - Cache TTL can be customized via config: `new MarketDataService(adapter, { optionChainTtlMs: 5 * 60 * 1000 })`
 - US-005 and US-006 will need UI (React/dashboard) which depends on US-008 (Basic dashboard UI)
+
+## 2026-01-26 - US-010: Historical price data retrieval (COMPLETED)
+
+### What was done:
+- Added historical price data types to src/types/broker.ts
+  - BarInterval type: 'minute' | '5min' | '15min' | 'hourly' | 'daily' | 'weekly' | 'monthly'
+  - HistoricalBar interface: timestamp, open, high, low, close, volume, vwap (optional)
+  - HistoricalBarsRequest interface: symbol, interval, start, end, limit
+  - HistoricalBarsResponse interface: symbol, interval, bars array, asOf timestamp
+  - Zod schemas for runtime validation
+- Added getHistoricalBars() method to BrokerAdapter interface
+- Implemented getHistoricalBars() in Tradier adapter (src/adapters/tradier/tradier-adapter.ts)
+  - Uses /markets/history endpoint for daily/weekly/monthly bars
+  - Uses /markets/timesales endpoint for intraday bars (minute, 5min, 15min)
+  - Aggregates minute bars to hourly bars (Tradier doesn't have hourly endpoint)
+  - Supports date range filtering with start/end parameters
+  - Supports limit parameter to return most recent N bars
+  - Returns bars sorted chronologically (oldest first)
+- Extended MarketDataService with historical bars caching (src/services/market-data.ts)
+  - Cache with configurable TTL (default 5 minutes for intraday, 1 hour+ for daily)
+  - Cache statistics via getHistoricalBarsCacheStats()
+  - clearHistoricalBarsCache() for cache management
+  - invalidateSymbol() now also clears historical bars for that symbol
+- Added 18 new tests covering:
+  - Tradier adapter: daily bars, weekly bars, intraday bars, hourly aggregation, limit, sorting, empty responses
+  - MarketDataService: caching, cache hits/misses, expiration, statistics, invalidation
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (150 tests total)
+
+### Notes for next developer:
+- Phase 0 now has only US-005, US-006, and US-008 remaining (all UI-related stories)
+- To use historical bars:
+  1. Get adapter from BrokerConnectionService or directly
+  2. Create MarketDataService: `const marketData = new MarketDataService(adapter)`
+  3. Fetch bars: `const bars = await marketData.getHistoricalBars({ symbol: 'AAPL', interval: 'daily', limit: 200 })`
+  4. For technical indicators (US-018), use the bars array with your indicator calculations
+- Supported intervals: minute, 5min, 15min, hourly, daily, weekly, monthly
+- Intraday data defaults to last 5 days; daily data defaults to last year
+- Cache TTL is configurable: `new MarketDataService(adapter, { historicalBarsTtlMs: 10 * 60 * 1000 })`
+- The next logical feature to implement is US-008 (Basic dashboard UI) which enables US-005 and US-006

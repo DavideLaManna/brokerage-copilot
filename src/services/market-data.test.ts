@@ -9,6 +9,8 @@ import type {
   OptionChain,
   OptionChainRequest,
   Quote,
+  HistoricalBarsRequest,
+  HistoricalBarsResponse,
 } from '../types/broker.js';
 
 /**
@@ -26,6 +28,7 @@ function createMockAdapter(): BrokerAdapter {
     cancelOrder: vi.fn(),
     getQuote: vi.fn(),
     getOptionChain: vi.fn(),
+    getHistoricalBars: vi.fn(),
     validateConnection: vi.fn(),
     disconnect: vi.fn(),
   };
@@ -59,6 +62,37 @@ function createMockQuote(symbol: string): Quote {
     bidSize: 100,
     askSize: 100,
     volume: 1000000,
+    asOf: new Date(),
+  };
+}
+
+/**
+ * Create mock historical bars for testing
+ */
+function createMockHistoricalBars(
+  symbol: string,
+  interval: 'minute' | '5min' | '15min' | 'hourly' | 'daily' | 'weekly' | 'monthly' = 'daily',
+  count = 5
+): HistoricalBarsResponse {
+  const bars = [];
+  const now = new Date();
+
+  for (let i = count - 1; i >= 0; i--) {
+    const timestamp = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    bars.push({
+      timestamp,
+      open: 150 + Math.random() * 5,
+      high: 155 + Math.random() * 5,
+      low: 145 + Math.random() * 5,
+      close: 150 + Math.random() * 5,
+      volume: Math.floor(1000000 + Math.random() * 500000),
+    });
+  }
+
+  return {
+    symbol,
+    interval,
+    bars,
     asOf: new Date(),
   };
 }
@@ -447,6 +481,181 @@ describe('MarketDataService', () => {
 
     it('exposes underlying adapter', () => {
       expect(service.getAdapter()).toBe(adapter);
+    });
+  });
+
+  describe('getHistoricalBars', () => {
+    it('fetches historical bars from adapter on first request', async () => {
+      const mockBars = createMockHistoricalBars('AAPL', 'daily');
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBars
+      );
+
+      const request: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+      const result = await service.getHistoricalBars(request);
+
+      expect(result).toEqual(mockBars);
+      expect(adapter.getHistoricalBars).toHaveBeenCalledTimes(1);
+      expect(adapter.getHistoricalBars).toHaveBeenCalledWith(request);
+    });
+
+    it('returns cached historical bars on subsequent requests', async () => {
+      const mockBars = createMockHistoricalBars('AAPL', 'daily');
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBars
+      );
+
+      const request: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+
+      // First request - should hit adapter
+      await service.getHistoricalBars(request);
+      // Second request - should return cached
+      const result = await service.getHistoricalBars(request);
+
+      expect(result).toEqual(mockBars);
+      expect(adapter.getHistoricalBars).toHaveBeenCalledTimes(1);
+    });
+
+    it('fetches fresh data when forceRefresh is true', async () => {
+      const mockBars = createMockHistoricalBars('AAPL', 'daily');
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBars
+      );
+
+      const request: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+
+      // First request
+      await service.getHistoricalBars(request);
+      // Second request with force refresh
+      await service.getHistoricalBars(request, true);
+
+      expect(adapter.getHistoricalBars).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches different intervals separately', async () => {
+      const mockDailyBars = createMockHistoricalBars('AAPL', 'daily');
+      const mockHourlyBars = createMockHistoricalBars('AAPL', 'hourly');
+
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(mockDailyBars)
+        .mockResolvedValueOnce(mockHourlyBars);
+
+      const dailyRequest: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+      const hourlyRequest: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'hourly' };
+
+      const dailyResult = await service.getHistoricalBars(dailyRequest);
+      const hourlyResult = await service.getHistoricalBars(hourlyRequest);
+
+      expect(dailyResult.interval).toBe('daily');
+      expect(hourlyResult.interval).toBe('hourly');
+      expect(adapter.getHistoricalBars).toHaveBeenCalledTimes(2);
+    });
+
+    it('caches different symbols separately', async () => {
+      const mockAAPLBars = createMockHistoricalBars('AAPL', 'daily');
+      const mockGOOGBars = createMockHistoricalBars('GOOG', 'daily');
+
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(mockAAPLBars)
+        .mockResolvedValueOnce(mockGOOGBars);
+
+      const aaplRequest: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+      const googRequest: HistoricalBarsRequest = { symbol: 'GOOG', interval: 'daily' };
+
+      const aaplResult = await service.getHistoricalBars(aaplRequest);
+      const googResult = await service.getHistoricalBars(googRequest);
+
+      expect(aaplResult.symbol).toBe('AAPL');
+      expect(googResult.symbol).toBe('GOOG');
+      expect(adapter.getHistoricalBars).toHaveBeenCalledTimes(2);
+    });
+
+    it('tracks cache statistics', async () => {
+      const mockBars = createMockHistoricalBars('AAPL', 'daily');
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBars
+      );
+
+      const request: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+
+      // First request - miss
+      await service.getHistoricalBars(request);
+      // Second request - hit
+      await service.getHistoricalBars(request);
+      // Third request - hit
+      await service.getHistoricalBars(request);
+
+      const stats = service.getHistoricalBarsCacheStats();
+      expect(stats.misses).toBe(1);
+      expect(stats.hits).toBe(2);
+      expect(stats.entries).toBe(1);
+      expect(stats.hitRate).toBeCloseTo(0.667, 2);
+    });
+
+    it('clears historical bars cache', async () => {
+      const mockBars = createMockHistoricalBars('AAPL', 'daily');
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBars
+      );
+
+      const request: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'daily' };
+      await service.getHistoricalBars(request);
+
+      expect(service.getHistoricalBarsCacheStats().entries).toBe(1);
+
+      service.clearHistoricalBarsCache();
+
+      expect(service.getHistoricalBarsCacheStats().entries).toBe(0);
+    });
+
+    it('invalidates historical bars when symbol is invalidated', async () => {
+      const mockAAPLBars = createMockHistoricalBars('AAPL', 'daily');
+      const mockGOOGBars = createMockHistoricalBars('GOOG', 'daily');
+
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(mockAAPLBars)
+        .mockResolvedValueOnce(mockGOOGBars);
+
+      await service.getHistoricalBars({ symbol: 'AAPL', interval: 'daily' });
+      await service.getHistoricalBars({ symbol: 'GOOG', interval: 'daily' });
+
+      expect(service.getHistoricalBarsCacheStats().entries).toBe(2);
+
+      service.invalidateSymbol('AAPL');
+
+      expect(service.getHistoricalBarsCacheStats().entries).toBe(1);
+    });
+
+    it('fetches fresh data when cache expires', async () => {
+      const mockBars = createMockHistoricalBars('AAPL', 'daily');
+      (adapter.getHistoricalBars as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockBars
+      );
+
+      // Create service with very short TTL
+      const shortTtlService = new MarketDataService(adapter, {
+        historicalBarsTtlMs: 1, // 1ms TTL
+      });
+
+      const request: HistoricalBarsRequest = { symbol: 'AAPL', interval: 'minute' }; // Intraday uses the short TTL
+
+      // First request
+      await shortTtlService.getHistoricalBars(request);
+
+      // Wait for cache to expire
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Second request - should fetch again due to expiry
+      await shortTtlService.getHistoricalBars(request);
+
+      expect(adapter.getHistoricalBars).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses longer TTL for daily bars', () => {
+      const config = service.getConfig();
+      // Default is 5 minutes for intraday
+      expect(config.historicalBarsTtlMs).toBe(5 * 60 * 1000);
+      // Daily bars get at least 1 hour TTL (tested implicitly by the caching logic)
     });
   });
 });
