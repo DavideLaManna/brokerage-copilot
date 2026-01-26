@@ -173,8 +173,8 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created RiskEngine class (src/services/risk-engine.ts) with validateOrder() function that validates orders against RiskConfig and current portfolio state. Implements 7 risk checks: (1) risk_per_trade - blocks if order risk exceeds maxRiskPerTradePercent of account; (2) concentration - blocks if total underlying exposure exceeds maxRiskPerUnderlyingPercent; (3) buying_power - blocks if order cost exceeds available buying power; (4) dte_range - blocks options outside minDTE/maxDTE range; (5) liquidity - blocks if bid-ask spread exceeds configurable threshold (default 5%); (6) max_positions - blocks if position count would exceed limit; (7) max_contracts - blocks if contract count per position would exceed limit. Returns detailed OrderValidationResult with pass/fail status, individual check results with actual vs limit values, and human-readable rejection reasons. All validation attempts logged for audit trail. Added standalone validateOrder() convenience function. Created 37 comprehensive tests (204 total tests pass). Typecheck passes."
     },
     {
       "id": "US-012",

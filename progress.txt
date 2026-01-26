@@ -378,3 +378,51 @@
 - The frontend automatically detects disconnected state and shows error banner
 - Both positions and orders are fetched in parallel for performance via /api/portfolio
 - The next feature to implement is US-011 (Risk engine - pre-trade validation)
+
+## 2026-01-26 - US-011: Risk engine - pre-trade validation (COMPLETED)
+
+### What was done:
+- Created src/services/risk-engine.ts with RiskEngine class for pre-trade validation
+  - validateOrder(order, context) function validates orders against risk configuration
+  - Returns OrderValidationResult with pass/fail status, individual check results, and rejection reasons
+- Implemented 7 risk checks:
+  1. **risk_per_trade**: Blocks if order max loss exceeds maxRiskPerTradePercent of account value
+  2. **concentration**: Blocks if total exposure to underlying exceeds maxRiskPerUnderlyingPercent
+  3. **buying_power**: Blocks if estimated order cost exceeds available buying power
+  4. **dte_range**: Blocks options with DTE outside minDTE/maxDTE range
+  5. **liquidity**: Blocks if bid-ask spread exceeds configurable threshold (default 5%)
+  6. **max_positions**: Blocks if position count would exceed maxOpenPositions limit
+  7. **max_contracts**: Blocks if contract count per position would exceed maxContractsPerPosition
+- Each check returns detailed RiskCheckResult with:
+  - checkType identifier
+  - passed boolean
+  - Human-readable message explaining result
+  - details object with actual value, limit, and unit
+- Comprehensive logging for audit trail:
+  - All validation attempts logged with timestamp, order details, pass/fail counts
+  - Failed validations include rejection reasons
+  - Configurable logger interface for integration with external logging systems
+- Factory function createRiskEngine() and standalone validateOrder() convenience function
+- Updated src/services/index.ts with RiskEngine exports
+- Added 37 comprehensive tests in src/services/risk-engine.test.ts covering:
+  - All 7 risk check types (pass and fail scenarios)
+  - Edge cases (zero account value, missing quotes, equity orders)
+  - Multiple simultaneous failures
+  - Custom configuration (liquidity threshold)
+  - Logging verification
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (204 tests total)
+
+### Notes for next developer:
+- To use the RiskEngine:
+  1. Create engine: `const engine = new RiskEngine({ logger: myLogger })`
+  2. Build context: `{ config: riskConfig, account: accountSummary, positions: currentPositions, quote: optionQuote }`
+  3. Validate: `const result = engine.validateOrder(order, context)`
+  4. Check: `if (!result.valid) { console.log(result.rejectionReasons) }`
+- Or use standalone function: `const result = validateOrder(order, config, account, positions, quote)`
+- The liquidity check requires a quote (Quote or OptionContract) in the context
+- For selling options, risk calculation uses 2x premium as conservative max loss estimate
+- The engine does NOT auto-fetch quotes - caller must provide quote for liquidity check
+- Next features to implement are US-012 (Liquidity scoring) which expands on liquidity checks, or US-013 (Portfolio exposure calculator)
