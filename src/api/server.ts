@@ -7,9 +7,10 @@
 
 import express, { Request, Response, NextFunction, Application } from 'express';
 import cors from 'cors';
-import type { BrokerAdapter, AccountSummary, Position, Order } from '../types/broker.js';
+import type { BrokerAdapter, AccountSummary, Position, Order, OptionChainRequest } from '../types/broker.js';
 import { BrokerConnectionService } from '../services/broker-connection.js';
 import { BrokerError, BrokerErrorCode } from '../types/errors.js';
+import { addLiquidityToChain, type OptionChainWithLiquidity } from '../services/liquidity.js';
 
 /**
  * API response wrapper for consistent response format
@@ -188,6 +189,42 @@ export class ApiServer {
         };
 
         res.json(this.wrapResponse(portfolio));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get option chain with liquidity scores
+    this.app.get('/api/option-chain/:symbol', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+        const symbol = req.params.symbol as string;
+        const { minDTE, maxDTE } = req.query;
+
+        const request: OptionChainRequest = {
+          symbol: symbol.toUpperCase(),
+          minDTE: minDTE ? parseInt(minDTE as string, 10) : undefined,
+          maxDTE: maxDTE ? parseInt(maxDTE as string, 10) : undefined,
+        };
+
+        const chain = await adapter.getOptionChain(request);
+
+        // Add liquidity scores to all contracts
+        const chainWithLiquidity = addLiquidityToChain(chain);
+
+        // Convert Map to object for JSON serialization
+        const contractsObj: Record<string, unknown[]> = {};
+        for (const [expiration, contracts] of chainWithLiquidity.contracts) {
+          contractsObj[expiration] = contracts;
+        }
+
+        res.json(this.wrapResponse({
+          underlying: chainWithLiquidity.underlying,
+          underlyingPrice: chainWithLiquidity.underlyingPrice,
+          expirations: chainWithLiquidity.expirations,
+          contracts: contractsObj,
+          asOf: chainWithLiquidity.asOf,
+        }));
       } catch (error) {
         next(error);
       }

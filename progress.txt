@@ -426,3 +426,60 @@
 - For selling options, risk calculation uses 2x premium as conservative max loss estimate
 - The engine does NOT auto-fetch quotes - caller must provide quote for liquidity check
 - Next features to implement are US-012 (Liquidity scoring) which expands on liquidity checks, or US-013 (Portfolio exposure calculator)
+
+## 2026-01-26 - US-012: Liquidity scoring (COMPLETED)
+
+### What was done:
+- Created src/services/liquidity.ts with comprehensive liquidity scoring service
+  - calculateSpreadPercent(bid, ask): Computes bid-ask spread as (ask - bid) / mid * 100
+  - LiquidityMetrics interface: spread, spreadPercent, midPrice, volume, openInterest, rating, lowLiquidityWarning, description
+  - LiquidityRating type: 'high' | 'medium' | 'low' | 'very_low'
+  - getLiquidityRating(): Classifies based on configurable thresholds (default: >5% = very_low, >2% = low, >1% = medium, else high)
+  - computeLiquidityMetrics(): Computes all metrics for a single contract
+  - addLiquidityToContract(): Adds liquidity metrics to an option contract
+  - addLiquidityToChain(): Adds liquidity metrics to all contracts in an option chain
+  - filterByLiquidity(): Filter contracts by minimum rating
+  - sortByLiquidity(): Sort contracts by liquidity (best first)
+  - getChainLiquiditySummary(): Aggregate statistics across a chain
+  - DEFAULT_LIQUIDITY_CONFIG with configurable thresholds
+- Added API endpoint GET /api/option-chain/:symbol in src/api/server.ts
+  - Accepts optional minDTE and maxDTE query parameters
+  - Returns option chain with liquidity scores for all contracts
+  - Converts Map to object for JSON serialization
+- Created src/ui/components/OptionChainTable.tsx
+  - Displays option chain with liquidity metrics
+  - Columns: Strike, Type, Bid, Ask, Mid, Spread %, Volume, OI, Liquidity (badge), Delta, IV
+  - Filter controls: expiration selector, type (all/calls/puts), low-liquidity-only toggle
+  - Low liquidity warnings shown with warning icon and highlighted rows
+  - Liquidity rating badges color-coded: high (green), medium (blue), low (yellow), very_low (red)
+- Updated src/ui/types.ts with LiquidityMetrics, LiquidityRating, OptionContract, OptionChain types
+- Updated src/ui/services/api.ts with getOptionChain() method
+- Added CSS styles in src/ui/styles/index.css for liquidity badges and option chain controls
+- Updated src/services/index.ts with liquidity exports
+- Updated src/ui/components/index.ts to export OptionChainTable
+- Created src/services/liquidity.test.ts with 30 tests covering:
+  - calculateSpreadPercent: normal cases, edge cases (zero, negative, inverted)
+  - getLiquidityRating: all rating levels, custom config
+  - getLiquidityDescription: all rating descriptions, Infinity handling
+  - computeLiquidityMetrics: option contracts, quotes without OI
+  - addLiquidityToContract and addLiquidityToChain
+  - filterByLiquidity and sortByLiquidity
+  - getChainLiquiditySummary including empty chain
+  - DEFAULT_LIQUIDITY_CONFIG values
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (234 tests total - 30 new liquidity tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To use liquidity scoring:
+  1. Import: `import { addLiquidityToChain, computeLiquidityMetrics } from './services/liquidity.js'`
+  2. Add to chain: `const chainWithLiquidity = addLiquidityToChain(optionChain)`
+  3. Check warnings: `contract.liquidity.lowLiquidityWarning`
+  4. Get rating: `contract.liquidity.rating`
+- The API endpoint /api/option-chain/:symbol returns chain with liquidity already computed
+- The OptionChainTable component is ready to use but needs to be integrated into App.tsx (add symbol input)
+- Default threshold for low liquidity warning is 5% spread
+- Liquidity rating considers both spread AND volume/OI (high liquidity requires tight spread AND good volume)
+- Next features to implement are US-013 (Portfolio exposure calculator) or US-014 (Portfolio Greeks aggregation)

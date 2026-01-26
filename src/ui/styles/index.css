@@ -441,6 +441,136 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* Liquidity Badges */
+.badge--liquidity-high {
+  background-color: var(--color-positive-bg);
+  color: var(--color-positive);
+}
+
+.badge--liquidity-medium {
+  background-color: rgba(88, 166, 255, 0.15);
+  color: var(--color-accent);
+}
+
+.badge--liquidity-low {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.badge--liquidity-very-low {
+  background-color: var(--color-negative-bg);
+  color: var(--color-negative);
+}
+
+/* Warning indicator */
+.warning-icon {
+  margin-left: var(--spacing-xs);
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+}
+
+.row--warning {
+  background-color: var(--color-warning-bg);
+}
+
+.row--warning td {
+  background-color: var(--color-warning-bg);
+}
+
+/* Option Chain Controls */
+.option-chain-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg-tertiary);
+  align-items: center;
+}
+
+.option-chain-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.option-chain-filter label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.option-chain-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-left: auto;
+}
+
+/* Form Controls */
+.select {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.select:hover {
+  border-color: var(--color-border-light);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Symbol Input */
+.symbol-input-group {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.symbol-input {
+  flex: 1;
+  max-width: 200px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.symbol-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.symbol-input::placeholder {
+  text-transform: none;
+  color: var(--color-text-muted);
+}
+
 /* Responsive adjustments */
 @media (max-width: 640px) {
   .dashboard {

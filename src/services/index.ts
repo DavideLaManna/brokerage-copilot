@@ -33,3 +33,22 @@ export {
   type RiskEngineConfig,
   type RiskEngineLogger,
 } from './risk-engine.js';
+
+export {
+  calculateSpreadPercent,
+  computeSpreadPercent,
+  getLiquidityRating,
+  getLiquidityDescription,
+  computeLiquidityMetrics,
+  addLiquidityToContract,
+  addLiquidityToChain,
+  filterByLiquidity,
+  sortByLiquidity,
+  getChainLiquiditySummary,
+  DEFAULT_LIQUIDITY_CONFIG,
+  type LiquidityRating,
+  type LiquidityMetrics,
+  type LiquidityScoringConfig,
+  type OptionContractWithLiquidity,
+  type OptionChainWithLiquidity,
+} from './liquidity.js';

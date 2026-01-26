@@ -189,8 +189,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive liquidity scoring service (src/services/liquidity.ts) with: (1) calculateSpreadPercent() - computes bid-ask spread as (ask-bid)/mid*100; (2) LiquidityMetrics interface with spread, spreadPercent, volume, openInterest, rating (high/medium/low/very_low), lowLiquidityWarning flag; (3) getLiquidityRating() classifies contracts based on configurable thresholds (default: >5% = very_low, >2% = low, >1% = medium, else high); (4) addLiquidityToChain() adds liquidity metrics to all contracts in option chain; (5) filterByLiquidity() and sortByLiquidity() utility functions; (6) getChainLiquiditySummary() for aggregate statistics. Added API endpoint GET /api/option-chain/:symbol with optional minDTE/maxDTE params that returns chain with liquidity scores. Created OptionChainTable UI component displaying strike, type, bid/ask/mid, spread%, volume, OI, liquidity rating badge, delta, and IV. Low liquidity warnings shown with warning icon and highlighted rows. Filter controls for expiration, call/put, and low-liquidity-only. Added 30 comprehensive tests (234 total). Typecheck passes. UI builds successfully."
     },
     {
       "id": "US-013",

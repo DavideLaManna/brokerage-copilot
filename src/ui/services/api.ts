@@ -4,7 +4,7 @@
  * Handles communication with the backend API server.
  */
 
-import type { AccountSummary, Position, Order, ConnectionState } from '../types';
+import type { AccountSummary, Position, Order, ConnectionState, OptionChain, OptionContract } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -129,6 +129,20 @@ function parseOrders(orders: Order[]): Order[] {
 /**
  * API Client
  */
+/**
+ * Parse option contracts from API response
+ */
+function parseOptionContracts(contracts: Record<string, OptionContract[]>): Record<string, OptionContract[]> {
+  const result: Record<string, OptionContract[]> = {};
+  for (const [expiration, contractList] of Object.entries(contracts)) {
+    result[expiration] = contractList.map((c) => ({
+      ...c,
+      expiration: new Date(c.expiration),
+    }));
+  }
+  return result;
+}
+
 export const api = {
   /**
    * Check API health
@@ -248,6 +262,29 @@ export const api = {
       positions: parsePositions(data.positions),
       orders: parseOrders(data.orders),
       connected: data.connected,
+    };
+  },
+
+  /**
+   * Get option chain with liquidity scores
+   */
+  async getOptionChain(
+    symbol: string,
+    options?: { minDTE?: number; maxDTE?: number }
+  ): Promise<OptionChain> {
+    const params = new URLSearchParams();
+    if (options?.minDTE !== undefined) params.set('minDTE', options.minDTE.toString());
+    if (options?.maxDTE !== undefined) params.set('maxDTE', options.maxDTE.toString());
+
+    const queryString = params.toString();
+    const url = `/api/option-chain/${encodeURIComponent(symbol)}${queryString ? `?${queryString}` : ''}`;
+
+    const data = await fetchApi<OptionChain>(url);
+    return {
+      ...data,
+      expirations: data.expirations.map((d) => new Date(d)),
+      contracts: parseOptionContracts(data.contracts),
+      asOf: new Date(data.asOf),
     };
   },
 };

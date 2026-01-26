@@ -84,3 +84,45 @@ export interface ConnectionState {
   accountId?: string;
   lastUpdated?: Date;
 }
+
+// ============================================================================
+// Liquidity Types
+// ============================================================================
+
+export type LiquidityRating = 'high' | 'medium' | 'low' | 'very_low';
+
+export interface LiquidityMetrics {
+  spread: number;
+  spreadPercent: number;
+  midPrice: number;
+  volume: number;
+  openInterest: number;
+  rating: LiquidityRating;
+  lowLiquidityWarning: boolean;
+  description: string;
+}
+
+export interface OptionContract {
+  optionSymbol: string;
+  underlying: string;
+  strike: number;
+  expiration: Date;
+  optionType: OptionType;
+  bid: number;
+  ask: number;
+  mid: number;
+  last: number;
+  volume: number;
+  openInterest: number;
+  greeks?: Greeks;
+  multiplier: number;
+  liquidity?: LiquidityMetrics;
+}
+
+export interface OptionChain {
+  underlying: string;
+  underlyingPrice: number;
+  expirations: Date[];
+  contracts: Record<string, OptionContract[]>;
+  asOf: Date;
+}
