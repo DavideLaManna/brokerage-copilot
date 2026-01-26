@@ -236,8 +236,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive TradeProposal schema and storage layer. (1) src/types/trade-proposal.ts defines full schema with: StrategyType (12 types including spreads), ProposalContract (option legs with strike/expiry/side/qty), EntryPlan (orderType/limitPrice/slippage/TIF), ExitPlan (profitTargets array/stopLoss/maxHoldDays/closeAtDTE), RiskAssessment (maxLoss/maxLossPercent/riskRewardRatio/probabilityOfProfit/breakEvenPrices), ConfidenceLevel (low/medium/high), DataSource (sourceType/description/retrievedAt/reference), thesis (string array), catalysts (string array). (2) StoredTradeProposal includes: id (UUID), accountId, status (draft/approved/rejected/executed), createdAt, updatedAt, createdBy, executedOrderId, rejectionReason, notes. (3) Zod schemas for all types with runtime validation. (4) validateTradeProposal() returns errors and warnings (e.g., high confidence with few sources, no stop loss, large position). (5) TradeProposalService (src/services/trade-proposal.ts) provides full CRUD: createProposal, getProposal, getAllProposals (with status/underlying filters, sorting, limit), updateProposal, updateStatus, approveProposal, rejectProposal, markExecuted, deleteProposal. (6) Status transition validation (draft→approved/rejected, approved→executed/rejected, rejected→draft). (7) Encrypted storage per account in .config/trade-proposals/ using AES-256-GCM. (8) Helper functions: formatStrategyType, formatConfidence, formatProposalStatus, calculateProposalCost, getProposalSummary. Added 72 comprehensive tests (365 total). Typecheck passes."
     },
     {
       "id": "US-016",

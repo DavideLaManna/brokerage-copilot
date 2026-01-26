@@ -74,3 +74,38 @@ export {
   validateRiskConfig,
   formatRiskConfigForDisplay,
 } from './risk-config.js';
+
+// Trade proposal types
+export type {
+  ProposalStatus,
+  ConfidenceLevel,
+  StrategyType,
+  ProposalContract,
+  EntryPlan,
+  ProfitTarget,
+  StopLoss,
+  ExitPlan,
+  RiskAssessment,
+  DataSource,
+  TradeProposal,
+  StoredTradeProposal,
+  TradeProposalValidationResult,
+} from './trade-proposal.js';
+
+export {
+  ProposalContractSchema,
+  EntryPlanSchema,
+  ProfitTargetSchema,
+  StopLossSchema,
+  ExitPlanSchema,
+  RiskAssessmentSchema,
+  DataSourceSchema,
+  TradeProposalSchema,
+  StoredTradeProposalSchema,
+  validateTradeProposal,
+  formatStrategyType,
+  formatConfidence,
+  formatProposalStatus,
+  calculateProposalCost,
+  getProposalSummary,
+} from './trade-proposal.js';

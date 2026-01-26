@@ -78,3 +78,10 @@ export {
   type PositionGreeksBreakdown,
   type DetailedPortfolioGreeks,
 } from './portfolio-greeks.js';
+
+export {
+  TradeProposalService,
+  createTradeProposalServiceFromEnv,
+  type TradeProposalServiceOptions,
+  type ProposalQueryOptions,
+} from './trade-proposal.js';

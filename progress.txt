@@ -619,3 +619,72 @@
 - Positions without Greeks are tracked separately (positionsWithoutGreeks) for transparency
 - The client-side computeGreeks() in App.tsx mirrors the backend logic for demo mode
 - Next feature to implement is US-015 (TradeProposal schema and storage) which starts the trade recommendation phase
+
+## 2026-01-26 - US-015: TradeProposal schema and storage (COMPLETED)
+
+### What was done:
+- Created src/types/trade-proposal.ts with comprehensive TradeProposal schema
+  - StrategyType: 12 strategy types (long_call, long_put, short_call, short_put, covered_call, cash_secured_put, vertical_spread, calendar_spread, iron_condor, straddle, strangle, custom)
+  - ProposalContract: optionSymbol, underlying, strike, expiration, optionType, side, quantity, targetPrice
+  - EntryPlan: orderType (limit/market), limitPrice, slippagePercent, timeInForce, entryConditions
+  - ExitPlan: profitTargets array (percentGain + closePercent), stopLoss (type + value + trailing), maxHoldDays, closeAtDTE, exitNotes
+  - RiskAssessment: maxLoss, maxLossPercent, riskRewardRatio, probabilityOfProfit, breakEvenPrices, riskNotes
+  - DataSource: sourceType, description, retrievedAt, reference
+  - TradeProposal: strategyType, underlying, contracts[], thesis[], catalysts[], entryPlan, exitPlan, risk, confidence, dataUsed[]
+  - StoredTradeProposal: id (UUID), accountId, proposal, status, createdAt, updatedAt, createdBy, executedOrderId, rejectionReason, notes
+- Created Zod schemas for all types with validation rules
+  - ProposalContractSchema, EntryPlanSchema, ProfitTargetSchema, StopLossSchema, ExitPlanSchema
+  - RiskAssessmentSchema, DataSourceSchema, TradeProposalSchema, StoredTradeProposalSchema
+- Implemented validateTradeProposal() with warnings for:
+  - High confidence with few data sources
+  - Missing stop loss
+  - Large position sizes (>10 contracts)
+  - Short options with $0 max loss
+  - Market orders without slippage
+  - Profit targets not totaling 100%
+  - No catalysts identified
+  - Short DTE options (<7 days)
+- Created TradeProposalService (src/services/trade-proposal.ts)
+  - Full CRUD: createProposal, getProposal, getAllProposals, updateProposal, deleteProposal
+  - Query options: filter by status, underlying; limit results; sort by newest/oldest
+  - Status management: updateStatus, approveProposal, rejectProposal, markExecuted
+  - Status transition validation: draft→approved/rejected, approved→executed/rejected, rejected→draft, executed→(none)
+  - Statistics: countByStatus, getStatistics (byUnderlying)
+  - Encrypted storage per account in .config/trade-proposals/ using AES-256-GCM
+  - createTradeProposalServiceFromEnv() factory function
+- Helper functions for display:
+  - formatStrategyType(), formatConfidence(), formatProposalStatus()
+  - calculateProposalCost() - computes debit/credit for proposal
+  - getProposalSummary() - returns readable summary line
+- Updated src/types/index.ts and src/services/index.ts with exports
+- Added 72 comprehensive tests in src/services/trade-proposal.test.ts covering:
+  - All Zod schemas (contract, entry plan, exit plan, risk assessment)
+  - Validation with warnings
+  - Helper functions
+  - Service CRUD operations
+  - Status transitions
+  - Persistence across restarts
+  - Multi-account isolation
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (365 tests total - 72 new trade proposal tests)
+
+### Notes for next developer:
+- To use TradeProposalService:
+  1. Create: `const service = new TradeProposalService({ masterPassword: '...' })`
+  2. Initialize: `await service.initialize()`
+  3. Create proposal: `await service.createProposal(accountId, proposal, { createdBy: 'agent' })`
+  4. Get proposal: `service.getProposal(accountId, proposalId)`
+  5. Update status: `await service.approveProposal(accountId, proposalId)`
+  6. Mark executed: `await service.markExecuted(accountId, proposalId, orderId)`
+- Valid status transitions:
+  - draft → approved, rejected
+  - approved → executed, rejected
+  - rejected → draft
+  - executed → (terminal state)
+- Proposals are encrypted with the same master password as credentials/risk configs
+- The service tracks proposals per account in separate encrypted files
+- Use getAllProposals() with filters for efficient querying
+- calculateProposalCost() returns positive (debit) or negative (credit) based on sides
+- Next features to implement are US-016 (LLM tool - get portfolio snapshot) or US-017 (LLM tool - get option chain)
