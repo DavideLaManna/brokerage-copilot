@@ -188,3 +188,44 @@
 - Risk configs are encrypted with the same master password used for credentials
 - Warnings are returned for aggressive settings but don't block creation
 - The service supports multiple configurations per account for A/B testing strategies
+
+## 2026-01-26 - US-007: Fetch option chains with caching (COMPLETED)
+
+### What was done:
+- Created src/services/market-data.ts with MarketDataService class
+  - Wraps BrokerAdapter to add caching layer for market data operations
+  - Option chain caching with configurable TTL (default 10 minutes, meets 5-15 min requirement)
+  - Quote caching with shorter TTL (default 1 minute)
+  - LRU-style cache eviction when max entries exceeded
+  - Cache statistics: hits, misses, entries count, hit rate
+  - forceRefresh option to bypass cache when fresh data needed
+  - invalidateSymbol() for targeted cache invalidation
+  - clearCache(), clearOptionChainCache(), clearQuoteCache() methods
+  - getQuotes() for batch quote retrieval with partial cache hits
+  - Configurable max entries (optionChainTtlMs, quoteTtlMs, maxOptionChainEntries, maxQuoteEntries)
+- Updated src/services/index.ts with MarketDataService exports
+- Created src/services/market-data.test.ts with 22 tests covering:
+  - Cache hit/miss behavior for option chains and quotes
+  - forceRefresh functionality
+  - Cache expiration after TTL
+  - Different requests cached separately (symbol, DTE parameters)
+  - Batch quote retrieval with mixed cache hits
+  - Cache statistics tracking
+  - Cache clearing and symbol-specific invalidation
+  - LRU eviction when max size exceeded
+  - Configuration and TTL customization
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (132 tests total)
+
+### Notes for next developer:
+- The project is now ready for US-005 (Fetch and display positions) or US-006 (Fetch and display orders)
+- The underlying getOptionChain() was already implemented in US-004 (Tradier adapter) with full support for strikes, expirations, bid/ask, volume, open interest, and Greeks
+- To use MarketDataService:
+  1. Get adapter from BrokerConnectionService: `const adapter = connectionService.getAdapter('tradier')`
+  2. Create service: `const marketData = new MarketDataService(adapter)`
+  3. Fetch option chain: `const chain = await marketData.getOptionChain({ symbol: 'AAPL', minDTE: 0, maxDTE: 45 })`
+  4. Get cache stats: `const stats = marketData.getOptionChainCacheStats()`
+- Cache TTL can be customized via config: `new MarketDataService(adapter, { optionChainTtlMs: 5 * 60 * 1000 })`
+- US-005 and US-006 will need UI (React/dashboard) which depends on US-008 (Basic dashboard UI)

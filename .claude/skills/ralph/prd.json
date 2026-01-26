@@ -126,8 +126,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created MarketDataService (src/services/market-data.ts) that wraps BrokerAdapter to provide caching. Features: (1) Option chain caching with configurable TTL (default 10 minutes, within 5-15 min requirement); (2) Quote caching with shorter TTL (1 minute); (3) LRU-style eviction when cache reaches max size; (4) Cache statistics (hits, misses, hit rate); (5) Symbol-specific cache invalidation; (6) forceRefresh option to bypass cache. The underlying getOptionChain() was already implemented in US-004's Tradier adapter with full support for strikes, expirations, bid/ask, volume, OI, and Greeks (delta, gamma, theta, vega, IV). Added 22 passing tests for cache behavior. Typecheck passes (132 total tests pass)."
     },
     {
       "id": "US-010",

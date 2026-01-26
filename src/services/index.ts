@@ -14,3 +14,10 @@ export {
   createRiskConfigServiceFromEnv,
   type RiskConfigServiceOptions,
 } from './risk-config.js';
+
+export {
+  MarketDataService,
+  createMarketDataService,
+  type MarketDataServiceConfig,
+  type CacheStats,
+} from './market-data.js';
