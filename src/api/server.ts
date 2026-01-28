@@ -19,6 +19,8 @@ import { reviewPortfolio, formatReviewForDisplay, type PortfolioReviewResult } f
 import { RiskEngine, type OrderValidationResult } from '../services/risk-engine.js';
 import { buildDraftOrders, type BuildDraftOrdersResult, type DraftOrder } from '../services/draft-order-builder.js';
 import type { TradeProposal } from '../types/trade-proposal.js';
+import { OrderSubmissionService, type BatchSubmissionResult } from '../services/order-submission.js';
+import { OrderSubmissionStore } from '../storage/order-submissions.js';
 
 /**
  * API response wrapper for consistent response format
@@ -57,17 +59,26 @@ interface ConnectionInfo {
 export class ApiServer {
   private app: Application;
   private connectionService: BrokerConnectionService;
+  private submissionStore: OrderSubmissionStore | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
-  constructor(connectionService: BrokerConnectionService, port: number = 3001) {
+  constructor(connectionService: BrokerConnectionService, port: number = 3001, submissionStore?: OrderSubmissionStore) {
     this.app = express();
     this.connectionService = connectionService;
+    this.submissionStore = submissionStore ?? null;
     this.port = port;
 
     this.setupMiddleware();
     this.setupRoutes();
     this.setupErrorHandling();
+  }
+
+  /**
+   * Set the order submission store (can be called after construction)
+   */
+  setSubmissionStore(store: OrderSubmissionStore): void {
+    this.submissionStore = store;
   }
 
   /**
@@ -419,6 +430,127 @@ export class ApiServer {
       }
     });
 
+    // Submit orders to broker (with idempotency)
+    this.app.post('/api/orders/submit', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        if (!this.submissionStore) {
+          res.status(503).json(this.wrapResponse(null, 'Order submission service not configured'));
+          return;
+        }
+
+        const { orders, correlationId, proposalId } = req.body as {
+          orders: Array<{
+            orderRequest: OrderRequest;
+            idempotencyKey: string;
+            proposalId?: string;
+            legIndex: number;
+            contractInfo: {
+              underlying: string;
+              strike: number;
+              expiration: string;
+              optionType: 'call' | 'put';
+              side: 'buy' | 'sell';
+              quantity: number;
+              targetPrice?: number;
+            };
+            estimatedCost: number;
+          }>;
+          correlationId: string;
+          proposalId?: string;
+        };
+
+        if (!orders || !Array.isArray(orders) || orders.length === 0) {
+          res.status(400).json(this.wrapResponse(null, 'Missing or empty orders array in request body'));
+          return;
+        }
+
+        if (!correlationId) {
+          res.status(400).json(this.wrapResponse(null, 'Missing correlationId in request body'));
+          return;
+        }
+
+        // Get account ID for submission tracking
+        // Use broker type as account identifier (in production, this would come from credentials)
+        const accountId = this.currentBrokerType;
+
+        // Convert request orders to DraftOrder format
+        const draftOrders: DraftOrder[] = orders.map(order => ({
+          orderRequest: {
+            ...order.orderRequest,
+            optionDetails: order.orderRequest.optionDetails ? {
+              ...order.orderRequest.optionDetails,
+              expiration: new Date(order.orderRequest.optionDetails.expiration),
+            } : undefined,
+          },
+          idempotencyKey: order.idempotencyKey,
+          proposalId: order.proposalId ?? proposalId,
+          legIndex: order.legIndex,
+          contractInfo: {
+            ...order.contractInfo,
+            expiration: new Date(order.contractInfo.expiration),
+          },
+          estimatedCost: order.estimatedCost,
+          createdAt: new Date(),
+        }));
+
+        // Build result object for submission service
+        const draftOrdersResult: BuildDraftOrdersResult = {
+          orders: draftOrders,
+          warnings: [],
+          totalEstimatedCost: orders.reduce((sum, o) => sum + o.estimatedCost, 0),
+          correlationId,
+          proposalId,
+        };
+
+        // Create submission service and submit orders
+        const submissionService = new OrderSubmissionService(
+          adapter,
+          this.submissionStore,
+          accountId
+        );
+
+        const result = await submissionService.submitOrders(draftOrdersResult);
+
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get order submission status by idempotency key
+    this.app.get('/api/orders/status/:idempotencyKey', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.submissionStore) {
+          res.status(503).json(this.wrapResponse(null, 'Order submission service not configured'));
+          return;
+        }
+
+        const idempotencyKey = req.params.idempotencyKey as string;
+
+        if (!idempotencyKey) {
+          res.status(400).json(this.wrapResponse(null, 'Missing idempotencyKey parameter'));
+          return;
+        }
+
+        // Get account ID for submission tracking
+        // Use broker type as account identifier (in production, this would come from credentials)
+        const accountId = this.currentBrokerType;
+
+        const submission = await this.submissionStore.getSubmission(accountId, idempotencyKey);
+
+        if (!submission) {
+          res.status(404).json(this.wrapResponse(null, 'Submission not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(submission));
+      } catch (error) {
+        next(error);
+      }
+    });
+
     // Refresh all data (alias for portfolio)
     this.app.post('/api/refresh', async (_req: Request, res: Response, next: NextFunction) => {
       try {
@@ -568,7 +700,8 @@ export class ApiServer {
  */
 export function createApiServer(
   connectionService: BrokerConnectionService,
-  port?: number
+  port?: number,
+  submissionStore?: OrderSubmissionStore
 ): ApiServer {
-  return new ApiServer(connectionService, port);
+  return new ApiServer(connectionService, port, submissionStore);
 }

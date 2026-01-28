@@ -39,3 +39,14 @@ export {
   type BrokerCredentials,
   type CredentialValidationResult,
 } from './secrets.js';
+
+// Order submission storage (idempotency)
+export {
+  OrderSubmissionStore,
+  createOrderSubmissionStoreFromEnv,
+  createOrderSubmission,
+  OrderSubmissionSchema,
+  type OrderSubmission,
+  type OrderSubmissionStatus,
+  type OrderSubmissionStoreConfig,
+} from './order-submissions.js';

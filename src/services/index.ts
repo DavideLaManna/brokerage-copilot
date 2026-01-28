@@ -129,3 +129,15 @@ export {
   type BuildDraftOrdersResult,
   type DraftOrderBuilderConfig,
 } from './draft-order-builder.js';
+
+export {
+  OrderSubmissionService,
+  createOrderSubmissionService,
+  submitOrder,
+  submitOrders,
+  DEFAULT_SUBMISSION_CONFIG,
+  type OrderSubmissionResult,
+  type BatchSubmissionResult,
+  type OrderSubmissionServiceConfig,
+  type OrderSubmissionLogger,
+} from './order-submission.js';

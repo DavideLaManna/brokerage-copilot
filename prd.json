@@ -361,8 +361,8 @@
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive order submission infrastructure with idempotency support. (1) src/storage/order-submissions.ts: OrderSubmissionStore class for tracking submitted orders with encrypted persistence, per-account isolation, status management (pending/submitted/filled/rejected/failed/canceled), correlation ID tracking for multi-leg orders, and automatic cleanup of old submissions. (2) src/services/order-submission.ts: OrderSubmissionService class with idempotency logic - checks for existing submissions before calling broker, implements retry with exponential backoff for transient failures (rate limits, timeouts), comprehensive error handling for all BrokerErrorCode types, stores submission records before calling broker, updates status on success/failure. (3) Tradier adapter already implements placeOrder() using native 'tag' field for idempotency. (4) API endpoints: POST /api/orders/submit accepts draft orders and submits via OrderSubmissionService, GET /api/orders/status/:idempotencyKey retrieves submission status. (5) Proper error categorization: insufficient funds/invalid order/market closed mark as 'rejected', network errors/timeouts mark as 'failed' and are retried. (6) All submissions logged for audit trail. Added 54 comprehensive tests (733 total). Typecheck passes."
     },
     {
       "id": "US-024",

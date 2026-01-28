@@ -1197,3 +1197,99 @@
 - All CSS uses existing design system variables for consistency
 - The component does NOT submit orders - it only previews and captures approval/rejection
 - Next features to implement are US-023 (Place order via broker API) and US-024 (Order execution flow)
+
+## 2026-01-28 - US-023: Place order via broker API (with idempotency) (COMPLETED)
+
+### What was done:
+- Created src/storage/order-submissions.ts with OrderSubmissionStore class
+  - Encrypted storage for tracking submitted orders per account
+  - OrderSubmission interface with: idempotencyKey (UUID), accountId, brokerOrderId, correlationId, proposalId, status, orderRequest, timestamps, errorMessage, errorCode, retryCount
+  - OrderSubmissionStatus type: pending, submitted, filled, partially_filled, rejected, failed, canceled
+  - Zod schema for validation (OrderSubmissionSchema)
+  - Methods: storeSubmission, getSubmission, updateSubmission, markSubmitted, markFailed, markRejected, incrementRetryCount, hasIdempotencyKey
+  - getAccountSubmissions() with filtering by status/correlationId and pagination
+  - getSubmissionsByCorrelationId() for multi-leg order tracking
+  - Persistence to encrypted JSON files per account (AES-256-GCM)
+  - cleanup() for removing old submissions (configurable max age/count)
+  - Multi-account isolation - submissions stored in separate files
+  - createOrderSubmission() factory function
+  - createOrderSubmissionStoreFromEnv() for initialization from env vars
+- Created src/services/order-submission.ts with OrderSubmissionService class
+  - submitOrder(draftOrder): Submits single order with idempotency
+    - Checks for existing submission with same idempotencyKey first
+    - If found: returns previous result (success or failure) without calling broker
+    - If not found: stores pending submission, then calls broker
+  - submitOrders(draftOrdersResult): Submits batch of orders (e.g., spreads)
+    - Tracks all orders with shared correlationId
+    - Handles partial failures (continues submitting remaining orders)
+    - Reports duplicates in summary
+  - Retry logic with exponential backoff:
+    - Retries on: RATE_LIMIT_EXCEEDED, CONNECTION_TIMEOUT, SERVICE_UNAVAILABLE, network errors (ECONNRESET, etc.)
+    - Does NOT retry on: INSUFFICIENT_FUNDS, INVALID_ORDER, SYMBOL_NOT_TRADEABLE, MARKET_CLOSED, DUPLICATE_ORDER
+    - Configurable: maxRetries (default 3), baseRetryDelayMs (1000), maxRetryDelayMs (30000), useJitter (true)
+  - Error categorization:
+    - Broker rejections (insufficient funds, invalid order, etc.) → status 'rejected'
+    - Transient failures (network, timeout) → status 'failed' (after retries exhausted)
+  - Comprehensive logging via OrderSubmissionLogger interface
+  - getSubmissionStatus() and getCorrelatedSubmissions() for status queries
+- Updated Tradier adapter (already implements placeOrder with idempotency via 'tag' field)
+- Added API endpoints in src/api/server.ts:
+  - POST /api/orders/submit: Accepts draft orders, submits via OrderSubmissionService
+    - Input: { orders: DraftOrder[], correlationId, proposalId? }
+    - Returns BatchSubmissionResult with individual results and summary
+  - GET /api/orders/status/:idempotencyKey: Retrieves submission status
+    - Returns OrderSubmission record or 404 if not found
+- Updated exports in src/storage/index.ts and src/services/index.ts
+- Created src/storage/order-submissions.test.ts with 28 tests covering:
+  - Constructor validation (password length)
+  - createOrderSubmission factory function
+  - storeSubmission: new submissions, duplicate key rejection, validation errors
+  - hasIdempotencyKey checks
+  - updateSubmission, markSubmitted, markFailed, markRejected
+  - incrementRetryCount
+  - getAccountSubmissions with filtering and pagination
+  - Persistence to disk and reload
+  - deleteSubmission and clearAccount
+  - Multi-account isolation
+  - OrderSubmissionSchema validation (valid/invalid statuses, UUIDs)
+- Created src/services/order-submission.test.ts with 26 tests covering:
+  - DEFAULT_SUBMISSION_CONFIG values
+  - submitOrder: success, stores record, duplicate idempotency key handling
+  - Broker rejection handling (insufficient funds)
+  - Retry on rate limit, connection timeout
+  - Max retries exhaustion
+  - No retry on invalid order
+  - submitOrders batch: success, partial failures, duplicate tracking, correlation ID
+  - getSubmissionStatus and getCorrelatedSubmissions
+  - Standalone functions (createOrderSubmissionService, submitOrder, submitOrders)
+  - Error handling: market closed, symbol not tradeable, duplicate order, generic errors
+  - Network error retry (ECONNRESET)
+  - Idempotency scenarios: returns previous failure, returns previous success
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (733 tests total - 54 new tests)
+
+### Notes for next developer:
+- To use the OrderSubmissionService:
+  1. Create store: `const store = new OrderSubmissionStore({ masterPassword: '...' })`
+  2. Initialize: `await store.initialize()`
+  3. Create service: `const service = new OrderSubmissionService(adapter, store, accountId)`
+  4. Submit single order: `const result = await service.submitOrder(draftOrder)`
+  5. Submit batch: `const result = await service.submitOrders(draftOrdersResult)`
+  6. Check result: `if (result.success) { console.log('Order ID:', result.orderId) }`
+- Idempotency flow:
+  1. Client generates UUID idempotencyKey for each order
+  2. First submission stores pending record, then calls broker
+  3. If broker succeeds: marks submitted with brokerOrderId
+  4. If broker fails: marks rejected/failed with error details
+  5. Subsequent submissions with same key return previous result (no broker call)
+- API endpoint /api/orders/submit:
+  1. POST with { orders: [...], correlationId: '...' }
+  2. Response includes success status, individual order results, summary counts
+  3. Partial failures are reported (batch continues even if one order fails)
+- Error codes that trigger 'rejected' status (no retry): INSUFFICIENT_FUNDS, INVALID_ORDER, SYMBOL_NOT_TRADEABLE, MARKET_CLOSED, ACCOUNT_RESTRICTED, PDT_RESTRICTION, DUPLICATE_ORDER
+- Error codes that trigger retry: RATE_LIMIT_EXCEEDED, CONNECTION_TIMEOUT, SERVICE_UNAVAILABLE
+- Network errors (ECONNRESET, etc.) are also retried
+- Submission records are encrypted and stored per account in .config/order-submissions/
+- Next feature to implement is US-024 (Order execution flow - user approval → submission → confirmation)
