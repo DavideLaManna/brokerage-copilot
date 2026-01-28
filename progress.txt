@@ -1050,3 +1050,67 @@
 - The agent does NOT execute orders - it only provides recommendations
 - To extend with new commands, add patterns to parseCommand() and handlers
 - Next feature to implement is US-021 (Draft order builder)
+
+## 2026-01-28 - US-021: Draft order builder (COMPLETED)
+
+### What was done:
+- Created src/services/draft-order-builder.ts with comprehensive draft order building functionality
+  - DraftOrder interface: orderRequest (broker format), idempotencyKey (UUID), proposalId, legIndex, contractInfo (reference), estimatedCost, createdAt
+  - BuildDraftOrdersResult interface: orders array, warnings, totalEstimatedCost, correlationId, proposalId
+  - DraftOrderBuilderConfig: defaultTimeInForce, defaultOrderType, applySlippage, defaultMultiplier
+- Implemented core functions:
+  - buildDraftOrder(proposal): Returns single DraftOrder for single-leg strategies; throws error for multi-leg
+  - buildDraftOrders(proposal): Returns BuildDraftOrdersResult with orders for all contract legs
+  - buildDraftOrdersFromStored(storedProposal): Includes proposal ID for tracking; warns if not approved
+  - buildDraftOrderFromContract(): Low-level function to build a single order from a contract
+- Converts ProposalContract to OrderRequest with:
+  - Option symbol mapping to broker format
+  - Option details (underlying, strike, expiration, optionType)
+  - Side (buy/sell) and quantity
+  - Order type from entry plan (limit/market)
+  - Time in force from entry plan (day/gtc/ioc/fok)
+- Applies entry plan parameters:
+  - Limit price from contract targetPrice or entryPlan limitPrice
+  - Slippage adjustment: increases limit for buys, decreases for sells
+  - Time in force mapping
+- Generates UUID idempotency keys via crypto.randomUUID() for each order
+- Calculates estimated costs:
+  - Per-order: price * quantity * multiplier (positive for buy, negative for sell)
+  - Total across all legs (net debit/credit for spreads)
+- Validation helpers:
+  - validateDraftOrder(): Checks symbol, quantity, limit/stop prices for order type, idempotency key, option details
+  - validateDraftOrdersResult(): Validates all orders with indexed error messages
+- Formatting helpers:
+  - formatDraftOrder(): "BUY 1x AAPL 2024-02-16 $185 C @ $3.50 ($350.00 debit)"
+  - formatDraftOrdersResult(): Formatted summary with all legs, total, and warnings
+- Created src/services/draft-order-builder.test.ts with 58 comprehensive tests covering:
+  - generateIdempotencyKey: UUID format, uniqueness
+  - DEFAULT_DRAFT_ORDER_CONFIG values
+  - buildDraftOrderFromContract: order mapping, option details, slippage (buy/sell), market orders, cost calculation
+  - buildDraftOrders: single-leg, multi-leg (vertical spread), unique keys, warnings (market order, missing price), empty contracts
+  - buildDraftOrdersFromStored: proposal ID inclusion, status warnings
+  - buildDraftOrder: single order return, throws for no contracts, throws for multi-leg
+  - validateDraftOrder: valid orders, missing symbol, zero quantity, missing prices for order types
+  - validateDraftOrdersResult: all orders validation, indexed error messages
+  - formatDraftOrder: buy/sell formatting, put/call labels, prices, costs
+  - formatDraftOrdersResult: single/multi-leg, empty, warnings, credit totals
+  - Edge cases: zero price, large quantities, fractional prices, iron condor (4 legs), all TIF values
+- Updated src/services/index.ts with exports
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (636 tests total - 58 new tests)
+
+### Notes for next developer:
+- To use the draft order builder:
+  1. Import: `import { buildDraftOrder, buildDraftOrders } from './services/draft-order-builder.js'`
+  2. For single-leg: `const draft = buildDraftOrder(proposal)`
+  3. For multi-leg: `const result = buildDraftOrders(proposal)`
+  4. Validate: `const validation = validateDraftOrder(draft)`
+  5. Access order: `draft.orderRequest` is ready for broker submission
+- For stored proposals: `buildDraftOrdersFromStored(storedProposal)` includes proposal ID in all orders
+- Idempotency keys are automatically generated as UUIDs
+- Slippage is applied by default (configurable via applySlippage: false)
+- Estimated cost is positive for debits (buying), negative for credits (selling)
+- The draft order is NOT submitted - it must go through risk validation (US-011) first
+- Next feature to implement is US-022 (Order preview and approval UI)

@@ -329,8 +329,8 @@
         "Typecheck passes"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive draft order builder service (src/services/draft-order-builder.ts). (1) buildDraftOrder(proposal) returns single DraftOrder for single-leg strategies; (2) buildDraftOrders(proposal) returns BuildDraftOrdersResult with multiple orders for multi-leg strategies (spreads, iron condors); (3) buildDraftOrdersFromStored(storedProposal) includes proposal ID for tracking. Features: (a) Converts ProposalContract to OrderRequest with proper option details, (b) Applies entry plan limit price and time in force, (c) Generates UUID idempotency keys via crypto.randomUUID(), (d) Calculates slippage-adjusted limit prices for buy/sell orders, (e) Computes estimated cost per order and total (positive=debit, negative=credit), (f) Validates orders have required fields (symbol, quantity, prices for order type). DraftOrder includes: orderRequest (broker format), idempotencyKey, proposalId, legIndex, contractInfo (reference), estimatedCost, createdAt. Helper functions: validateDraftOrder(), validateDraftOrdersResult(), formatDraftOrder(), formatDraftOrdersResult(). Configurable via DraftOrderBuilderConfig (defaultTIF, defaultOrderType, applySlippage, defaultMultiplier). Added 58 comprehensive tests (636 total). Typecheck passes."
     },
     {
       "id": "US-022",
