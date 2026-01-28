@@ -327,6 +327,170 @@ export const api = {
       calculatedAt: new Date(data.calculatedAt),
     };
   },
+
+  /**
+   * Validate orders against risk rules
+   */
+  async validateOrders(proposal: TradeProposalInput): Promise<OrderValidationResponse> {
+    return fetchApi<OrderValidationResponse>('/api/orders/validate', {
+      method: 'POST',
+      body: JSON.stringify({ proposal }),
+    });
+  },
+
+  /**
+   * Execute orders (validate → submit → update proposal)
+   */
+  async executeOrders(params: OrderExecutionRequest): Promise<OrderExecutionResponse> {
+    return fetchApi<OrderExecutionResponse>('/api/orders/execute', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
 };
+
+// ============================================================================
+// Types for order execution
+// ============================================================================
+
+export interface TradeProposalInput {
+  strategyType: string;
+  underlying: string;
+  contracts: Array<{
+    optionSymbol: string;
+    underlying: string;
+    strike: number;
+    expiration: string;
+    optionType: 'call' | 'put';
+    side: 'buy' | 'sell';
+    quantity: number;
+    targetPrice?: number;
+  }>;
+  thesis: string[];
+  catalysts: string[];
+  entryPlan: {
+    orderType: 'limit' | 'market';
+    limitPrice?: number;
+    slippagePercent?: number;
+    timeInForce?: 'day' | 'gtc' | 'ioc' | 'fok';
+  };
+  exitPlan: {
+    profitTargets: Array<{ percentGain: number; closePercent: number }>;
+    stopLoss?: { type: 'percent' | 'price'; value: number; trailing?: boolean };
+    maxHoldDays?: number;
+  };
+  risk: {
+    maxLoss: number;
+    maxLossPercent?: number;
+    riskRewardRatio?: number;
+  };
+  confidence: 'low' | 'medium' | 'high';
+  dataUsed: Array<{
+    sourceType: string;
+    description: string;
+    retrievedAt: string;
+  }>;
+}
+
+export interface DraftOrderInfo {
+  description: string;
+  side: 'buy' | 'sell';
+  quantity: number;
+  underlying: string;
+  strike: number;
+  expiration: string;
+  optionType: 'call' | 'put';
+  limitPrice?: number;
+  estimatedCost: number;
+  idempotencyKey: string;
+}
+
+export interface RiskCheckResult {
+  checkType: string;
+  passed: boolean;
+  message: string;
+  details?: {
+    actual?: number;
+    limit?: number;
+    unit?: string;
+  };
+}
+
+export interface OrderValidationResult {
+  valid: boolean;
+  checks: RiskCheckResult[];
+  rejectionReasons: string[];
+  validatedAt: string;
+}
+
+export interface OrderValidationResponse {
+  orders: DraftOrderInfo[];
+  totalEstimatedCost: number;
+  validation: OrderValidationResult;
+  warnings: string[];
+  correlationId: string;
+}
+
+export interface OrderExecutionRequest {
+  orders: Array<{
+    orderRequest: {
+      symbol: string;
+      side: 'buy' | 'sell';
+      quantity: number;
+      orderType: 'market' | 'limit' | 'stop' | 'stop_limit';
+      limitPrice?: number;
+      stopPrice?: number;
+      timeInForce?: 'day' | 'gtc' | 'ioc' | 'fok';
+      optionDetails?: {
+        underlying: string;
+        strike: number;
+        expiration: string;
+        optionType: 'call' | 'put';
+        multiplier?: number;
+      };
+    };
+    idempotencyKey: string;
+    proposalId?: string;
+    legIndex: number;
+    contractInfo: {
+      underlying: string;
+      strike: number;
+      expiration: string;
+      optionType: 'call' | 'put';
+      side: 'buy' | 'sell';
+      quantity: number;
+      targetPrice?: number;
+    };
+    estimatedCost: number;
+  }>;
+  correlationId: string;
+  proposalId?: string;
+}
+
+export interface OrderSubmissionResult {
+  success: boolean;
+  idempotencyKey: string;
+  orderId?: string;
+  errorMessage?: string;
+  errorCode?: string;
+  isDuplicate?: boolean;
+  retryCount: number;
+}
+
+export interface OrderExecutionResponse {
+  success: boolean;
+  status: 'executed' | 'partially_executed' | 'failed' | 'validation_failed';
+  proposalId?: string;
+  correlationId: string;
+  orderResults: OrderSubmissionResult[];
+  summary: {
+    total: number;
+    succeeded: number;
+    failed: number;
+  };
+  brokerOrderIds: string[];
+  errorMessage?: string;
+  executedAt: string;
+}
 
 export default api;

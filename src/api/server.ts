@@ -19,8 +19,9 @@ import { reviewPortfolio, formatReviewForDisplay, type PortfolioReviewResult } f
 import { RiskEngine, type OrderValidationResult } from '../services/risk-engine.js';
 import { buildDraftOrders, type BuildDraftOrdersResult, type DraftOrder } from '../services/draft-order-builder.js';
 import type { TradeProposal } from '../types/trade-proposal.js';
-import { OrderSubmissionService, type BatchSubmissionResult } from '../services/order-submission.js';
+import { OrderSubmissionService, type BatchSubmissionResult, type OrderSubmissionResult } from '../services/order-submission.js';
 import { OrderSubmissionStore } from '../storage/order-submissions.js';
+import { TradeProposalService } from '../services/trade-proposal.js';
 
 /**
  * API response wrapper for consistent response format
@@ -56,17 +57,47 @@ interface ConnectionInfo {
 /**
  * API Server class encapsulating the Express application
  */
+/**
+ * Order execution result returned from /api/orders/execute
+ */
+interface OrderExecutionResult {
+  /** Whether execution was successful */
+  success: boolean;
+  /** Overall status of the execution */
+  status: 'executed' | 'partially_executed' | 'failed' | 'validation_failed';
+  /** Proposal ID that was executed */
+  proposalId?: string;
+  /** Correlation ID for tracking */
+  correlationId: string;
+  /** Individual order results */
+  orderResults: OrderSubmissionResult[];
+  /** Summary of execution */
+  summary: {
+    total: number;
+    succeeded: number;
+    failed: number;
+  };
+  /** Combined broker order IDs (for successful orders) */
+  brokerOrderIds: string[];
+  /** Error message if execution failed */
+  errorMessage?: string;
+  /** Timestamp of execution */
+  executedAt: string;
+}
+
 export class ApiServer {
   private app: Application;
   private connectionService: BrokerConnectionService;
   private submissionStore: OrderSubmissionStore | null = null;
+  private proposalService: TradeProposalService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
-  constructor(connectionService: BrokerConnectionService, port: number = 3001, submissionStore?: OrderSubmissionStore) {
+  constructor(connectionService: BrokerConnectionService, port: number = 3001, submissionStore?: OrderSubmissionStore, proposalService?: TradeProposalService) {
     this.app = express();
     this.connectionService = connectionService;
     this.submissionStore = submissionStore ?? null;
+    this.proposalService = proposalService ?? null;
     this.port = port;
 
     this.setupMiddleware();
@@ -79,6 +110,13 @@ export class ApiServer {
    */
   setSubmissionStore(store: OrderSubmissionStore): void {
     this.submissionStore = store;
+  }
+
+  /**
+   * Set the trade proposal service (can be called after construction)
+   */
+  setProposalService(service: TradeProposalService): void {
+    this.proposalService = service;
   }
 
   /**
@@ -519,6 +557,206 @@ export class ApiServer {
       }
     });
 
+    // Execute orders: validate → submit → update proposal status
+    // This is the full execution flow triggered by user approval
+    this.app.post('/api/orders/execute', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        if (!this.submissionStore) {
+          res.status(503).json(this.wrapResponse(null, 'Order submission service not configured'));
+          return;
+        }
+
+        const { orders, correlationId, proposalId, proposal } = req.body as {
+          orders: Array<{
+            orderRequest: OrderRequest;
+            idempotencyKey: string;
+            proposalId?: string;
+            legIndex: number;
+            contractInfo: {
+              underlying: string;
+              strike: number;
+              expiration: string;
+              optionType: 'call' | 'put';
+              side: 'buy' | 'sell';
+              quantity: number;
+              targetPrice?: number;
+            };
+            estimatedCost: number;
+          }>;
+          correlationId: string;
+          proposalId?: string;
+          proposal?: TradeProposal;
+        };
+
+        if (!orders || !Array.isArray(orders) || orders.length === 0) {
+          res.status(400).json(this.wrapResponse(null, 'Missing or empty orders array in request body'));
+          return;
+        }
+
+        if (!correlationId) {
+          res.status(400).json(this.wrapResponse(null, 'Missing correlationId in request body'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+
+        // Step 1: Pre-trade validation
+        const [account, positions] = await Promise.all([
+          adapter.getAccountSummary(),
+          adapter.getPositions(),
+        ]);
+
+        const riskEngine = new RiskEngine();
+        const validationResults: OrderValidationResult[] = [];
+        let allValid = true;
+
+        for (const order of orders) {
+          // Try to get quote for liquidity check (optional)
+          let quote = undefined;
+          try {
+            quote = await adapter.getQuote(order.orderRequest.symbol);
+          } catch {
+            // Quote fetch failed, proceed without liquidity check
+          }
+
+          const validation = riskEngine.validateOrder(order.orderRequest, {
+            config: DEFAULT_RISK_CONFIG,
+            account,
+            positions,
+            quote,
+          });
+
+          validationResults.push(validation);
+          if (!validation.valid) {
+            allValid = false;
+          }
+        }
+
+        // If validation fails, return error and don't submit
+        if (!allValid) {
+          const rejectionReasons = validationResults.flatMap(v => v.rejectionReasons);
+          const uniqueRejections = [...new Set(rejectionReasons)];
+
+          const result: OrderExecutionResult = {
+            success: false,
+            status: 'validation_failed',
+            proposalId,
+            correlationId,
+            orderResults: [],
+            summary: { total: orders.length, succeeded: 0, failed: orders.length },
+            brokerOrderIds: [],
+            errorMessage: `Pre-trade validation failed: ${uniqueRejections.join('; ')}`,
+            executedAt: new Date().toISOString(),
+          };
+
+          res.status(400).json(this.wrapResponse(result));
+          return;
+        }
+
+        // Step 2: Submit orders to broker
+        const draftOrders: DraftOrder[] = orders.map(order => ({
+          orderRequest: {
+            ...order.orderRequest,
+            optionDetails: order.orderRequest.optionDetails ? {
+              ...order.orderRequest.optionDetails,
+              expiration: new Date(order.orderRequest.optionDetails.expiration),
+            } : undefined,
+          },
+          idempotencyKey: order.idempotencyKey,
+          proposalId: order.proposalId ?? proposalId,
+          legIndex: order.legIndex,
+          contractInfo: {
+            ...order.contractInfo,
+            expiration: new Date(order.contractInfo.expiration),
+          },
+          estimatedCost: order.estimatedCost,
+          createdAt: new Date(),
+        }));
+
+        const draftOrdersResult: BuildDraftOrdersResult = {
+          orders: draftOrders,
+          warnings: [],
+          totalEstimatedCost: orders.reduce((sum, o) => sum + o.estimatedCost, 0),
+          correlationId,
+          proposalId,
+        };
+
+        const submissionService = new OrderSubmissionService(
+          adapter,
+          this.submissionStore,
+          accountId
+        );
+
+        const batchResult = await submissionService.submitOrders(draftOrdersResult);
+
+        // Step 3: Determine execution status and update proposal
+        const succeededOrders = batchResult.results.filter(r => r.success);
+        const brokerOrderIds = succeededOrders
+          .filter(r => r.orderId)
+          .map(r => r.orderId as string);
+
+        let status: OrderExecutionResult['status'];
+        if (batchResult.success) {
+          status = 'executed';
+        } else if (succeededOrders.length > 0) {
+          status = 'partially_executed';
+        } else {
+          status = 'failed';
+        }
+
+        // Step 4: Update proposal status if we have a proposal service and proposal ID
+        if (this.proposalService && proposalId) {
+          try {
+            if (status === 'executed') {
+              // Mark as executed with the first broker order ID
+              await this.proposalService.markExecuted(
+                accountId,
+                proposalId,
+                brokerOrderIds[0] || correlationId,
+                `Executed via API. Order IDs: ${brokerOrderIds.join(', ')}`
+              );
+            } else if (status === 'failed') {
+              // Reject the proposal with failure reason
+              const errorMessages = batchResult.results
+                .filter(r => !r.success && r.errorMessage)
+                .map(r => r.errorMessage);
+              await this.proposalService.rejectProposal(
+                accountId,
+                proposalId,
+                `Execution failed: ${errorMessages.join('; ')}`,
+                'Order submission failed'
+              );
+            }
+            // For partially_executed, we don't update status - requires manual review
+          } catch (proposalError) {
+            // Log but don't fail the response - orders were submitted
+            console.error('Failed to update proposal status:', proposalError);
+          }
+        }
+
+        // Build execution result
+        const executionResult: OrderExecutionResult = {
+          success: batchResult.success,
+          status,
+          proposalId,
+          correlationId,
+          orderResults: batchResult.results,
+          summary: batchResult.summary,
+          brokerOrderIds,
+          errorMessage: batchResult.success
+            ? undefined
+            : batchResult.results.find(r => !r.success)?.errorMessage,
+          executedAt: batchResult.submittedAt,
+        };
+
+        res.json(this.wrapResponse(executionResult));
+      } catch (error) {
+        next(error);
+      }
+    });
+
     // Get order submission status by idempotency key
     this.app.get('/api/orders/status/:idempotencyKey', async (req: Request, res: Response, next: NextFunction) => {
       try {
@@ -701,7 +939,8 @@ export class ApiServer {
 export function createApiServer(
   connectionService: BrokerConnectionService,
   port?: number,
-  submissionStore?: OrderSubmissionStore
+  submissionStore?: OrderSubmissionStore,
+  proposalService?: TradeProposalService
 ): ApiServer {
-  return new ApiServer(connectionService, port, submissionStore);
+  return new ApiServer(connectionService, port, submissionStore, proposalService);
 }

@@ -1293,3 +1293,76 @@
 - Network errors (ECONNRESET, etc.) are also retried
 - Submission records are encrypted and stored per account in .config/order-submissions/
 - Next feature to implement is US-024 (Order execution flow - user approval → submission → confirmation)
+
+## 2026-01-28 - US-024: Order execution flow (user approval → submission → confirmation) (COMPLETED)
+
+### What was done:
+- Created POST /api/orders/execute endpoint (src/api/server.ts) for complete order execution flow
+  - Accepts orders array, correlationId, proposalId from UI
+  - Step 1: Runs pre-trade validation against risk rules using RiskEngine
+  - Step 2: If validation passes, submits orders via OrderSubmissionService with idempotency keys
+  - Step 3: Updates TradeProposal status (executed/rejected) via TradeProposalService
+  - Returns structured OrderExecutionResult with status, broker order IDs, and error details
+  - Status types: 'executed', 'partially_executed', 'failed', 'validation_failed'
+- Created ExecutionResultModal UI component (src/ui/components/ExecutionResultModal.tsx)
+  - Status banner with icon and color-coded styling (success=green, warning=yellow, error=red)
+  - Summary section showing total/succeeded/failed order counts
+  - Broker order IDs section displaying all successful order IDs
+  - Individual order results with success/error details
+  - Error message section for failed executions
+  - Correlation ID and timestamp for tracking/audit
+  - Close button that triggers portfolio refresh on success
+- Updated App.tsx with order execution integration
+  - Added state variables: orderApprovalData, orderValidationResponse, isApprovalModalOpen, isApproving, executionResult, isResultModalOpen
+  - Implemented handleOrderApproval(): builds execution request from validation response, calls api.executeOrders(), handles success/error, triggers portfolio refresh after successful execution
+  - Implemented handleOrderRejection(): logs rejection and closes modal
+  - Implemented modal close handlers with approval-in-progress protection
+  - Integrated OrderApprovalModal and ExecutionResultModal into dashboard JSX
+  - Demo mode support with mock execution result
+- Extended API client (src/ui/services/api.ts) with order execution methods
+  - Added validateOrders(proposal): POST to /api/orders/validate
+  - Added executeOrders(params): POST to /api/orders/execute
+  - Added comprehensive type definitions: TradeProposalInput, DraftOrderInfo, RiskCheckResult, OrderValidationResult, OrderValidationResponse, OrderExecutionRequest, OrderSubmissionResult, OrderExecutionResponse
+- Updated ApiServer constructor to accept TradeProposalService parameter
+  - Added setProposalService() method for post-construction configuration
+  - Updated createApiServer() factory function with proposalService parameter
+- Added CSS styles for ExecutionResultModal (src/ui/styles/index.css)
+  - Status banner styles (success, warning, error variants)
+  - Summary section with metrics display
+  - Order results with success/failed indicators
+  - Meta information section for correlation ID and timestamp
+- Created src/ui/components/ExecutionResultModal.test.ts with 18 tests covering:
+  - getStatusText(): all status values and unknown status
+  - getStatusClass(): success, warning, error class mappings
+  - getStatusIcon(): checkmark, exclamation, X icons
+  - Type validation for OrderExecutionResponse and OrderSubmissionResult
+- Updated src/api/server.test.ts with 6 tests for order execution endpoint
+- Updated src/ui/components/index.ts with ExecutionResultModal exports
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (761 tests total - 28 new tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To use the order execution flow:
+  1. User opens OrderApprovalModal with order data (from validation endpoint)
+  2. User clicks Approve button
+  3. handleOrderApproval() is called, which:
+     a. Builds execution request from orderValidationResponse
+     b. Calls api.executeOrders() with orders, correlationId, proposalId
+     c. API validates orders against risk rules
+     d. If valid, submits orders to broker via OrderSubmissionService
+     e. Updates proposal status (executed/rejected) if proposalService configured
+     f. Returns OrderExecutionResult
+  4. ExecutionResultModal opens showing success/failure with broker order IDs
+  5. On close, if successful, portfolio data is auto-refreshed
+- API endpoint /api/orders/execute:
+  - POST with { orders: [...], correlationId: '...', proposalId?: '...' }
+  - Returns { success, status, orderResults, brokerOrderIds, summary, errorMessage }
+  - Status values: 'executed' (all succeeded), 'partially_executed' (some succeeded), 'failed' (all failed), 'validation_failed' (risk checks failed)
+- The execution flow includes pre-trade validation - if risk checks fail, orders are NOT submitted
+- Portfolio refresh happens automatically 1 second after successful execution
+- Demo mode simulates successful execution without calling API
+- TradeProposal status is updated if proposalService is configured in ApiServer
+- Next features to implement are US-025 (Cancel order functionality) or US-026 (Audit trail storage)

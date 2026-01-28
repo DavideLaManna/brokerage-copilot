@@ -1,6 +1,21 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { AccountSummary, PositionsTable, OrdersTable, ExposurePanel, GreeksPanel, ChatPanel } from './components';
-import { api, ApiError } from './services';
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+  AccountSummary,
+  PositionsTable,
+  OrdersTable,
+  ExposurePanel,
+  GreeksPanel,
+  ChatPanel,
+  OrderApprovalModal,
+  ExecutionResultModal,
+  type OrderApprovalData,
+} from './components';
+import {
+  api,
+  ApiError,
+  type OrderExecutionResponse,
+  type OrderValidationResponse,
+} from './services';
 import type {
   AccountSummary as AccountSummaryType,
   Position,
@@ -377,6 +392,14 @@ export default function App(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Order execution flow state
+  const [orderApprovalData, setOrderApprovalData] = useState<OrderApprovalData | null>(null);
+  const [orderValidationResponse, setOrderValidationResponse] = useState<OrderValidationResponse | null>(null);
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [executionResult, setExecutionResult] = useState<OrderExecutionResponse | null>(null);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+
   /**
    * Fetch portfolio data from API or use mock data
    */
@@ -492,6 +515,141 @@ export default function App(): React.ReactElement {
   }, []);
 
   /**
+   * Handle order approval (from OrderApprovalModal)
+   * This triggers the full execution flow: validation → submission → confirmation
+   */
+  const handleOrderApproval = useCallback(async (proposalId?: string) => {
+    if (!orderValidationResponse || DEMO_MODE) {
+      // In demo mode, simulate success
+      if (DEMO_MODE) {
+        const mockResult: OrderExecutionResponse = {
+          success: true,
+          status: 'executed',
+          proposalId,
+          correlationId: orderValidationResponse?.correlationId || 'demo-correlation-id',
+          orderResults: [
+            {
+              success: true,
+              idempotencyKey: 'demo-key-1',
+              orderId: 'DEMO-ORDER-123456',
+              retryCount: 0,
+            },
+          ],
+          summary: { total: 1, succeeded: 1, failed: 0 },
+          brokerOrderIds: ['DEMO-ORDER-123456'],
+          executedAt: new Date().toISOString(),
+        };
+        setExecutionResult(mockResult);
+        setIsApprovalModalOpen(false);
+        setIsResultModalOpen(true);
+      }
+      return;
+    }
+
+    setIsApproving(true);
+
+    try {
+      // Build execution request from validation response
+      const executionRequest = {
+        orders: orderValidationResponse.orders.map((order, idx) => ({
+          orderRequest: {
+            symbol: `${order.underlying}${order.expiration.slice(2, 10).replace(/-/g, '')}${order.optionType === 'call' ? 'C' : 'P'}${String(order.strike * 1000).padStart(8, '0')}`,
+            side: order.side,
+            quantity: order.quantity,
+            orderType: 'limit' as const,
+            limitPrice: order.limitPrice,
+            timeInForce: 'day' as const,
+            optionDetails: {
+              underlying: order.underlying,
+              strike: order.strike,
+              expiration: order.expiration,
+              optionType: order.optionType,
+              multiplier: 100,
+            },
+          },
+          idempotencyKey: order.idempotencyKey,
+          proposalId,
+          legIndex: idx,
+          contractInfo: {
+            underlying: order.underlying,
+            strike: order.strike,
+            expiration: order.expiration,
+            optionType: order.optionType,
+            side: order.side,
+            quantity: order.quantity,
+            targetPrice: order.limitPrice,
+          },
+          estimatedCost: order.estimatedCost,
+        })),
+        correlationId: orderValidationResponse.correlationId,
+        proposalId,
+      };
+
+      // Execute the orders
+      const result = await api.executeOrders(executionRequest);
+
+      setExecutionResult(result);
+      setIsApprovalModalOpen(false);
+      setIsResultModalOpen(true);
+
+      // If successful, refresh portfolio data
+      if (result.success) {
+        // Delay refresh slightly to allow broker to update
+        setTimeout(handleRefresh, 1000);
+      }
+    } catch (err) {
+      // Handle execution error
+      const errorMessage = err instanceof ApiError ? err.message : 'Failed to execute order';
+      setExecutionResult({
+        success: false,
+        status: 'failed',
+        proposalId,
+        correlationId: orderValidationResponse.correlationId,
+        orderResults: [],
+        summary: { total: orderValidationResponse.orders.length, succeeded: 0, failed: orderValidationResponse.orders.length },
+        brokerOrderIds: [],
+        errorMessage,
+        executedAt: new Date().toISOString(),
+      });
+      setIsApprovalModalOpen(false);
+      setIsResultModalOpen(true);
+    } finally {
+      setIsApproving(false);
+    }
+  }, [orderValidationResponse, handleRefresh]);
+
+  /**
+   * Handle order rejection (from OrderApprovalModal)
+   */
+  const handleOrderRejection = useCallback((proposalId?: string, reason?: string) => {
+    console.log('Order rejected:', { proposalId, reason });
+    setIsApprovalModalOpen(false);
+    setOrderApprovalData(null);
+    setOrderValidationResponse(null);
+  }, []);
+
+  /**
+   * Close approval modal
+   */
+  const handleApprovalModalClose = useCallback(() => {
+    if (!isApproving) {
+      setIsApprovalModalOpen(false);
+      setOrderApprovalData(null);
+      setOrderValidationResponse(null);
+    }
+  }, [isApproving]);
+
+  /**
+   * Close execution result modal
+   */
+  const handleResultModalClose = useCallback(() => {
+    setIsResultModalOpen(false);
+    setExecutionResult(null);
+    setOrderApprovalData(null);
+    setOrderValidationResponse(null);
+  }, []);
+
+  /**
    * Initial data load
    */
   useEffect(() => {
@@ -578,6 +736,26 @@ export default function App(): React.ReactElement {
           demoMode={DEMO_MODE}
         />
       </div>
+
+      {/* Order Approval Modal */}
+      {orderApprovalData && (
+        <OrderApprovalModal
+          data={orderApprovalData}
+          isOpen={isApprovalModalOpen}
+          onClose={handleApprovalModalClose}
+          onApprove={handleOrderApproval}
+          onReject={handleOrderRejection}
+          isApproving={isApproving}
+        />
+      )}
+
+      {/* Execution Result Modal */}
+      <ExecutionResultModal
+        result={executionResult}
+        isOpen={isResultModalOpen}
+        onClose={handleResultModalClose}
+        onRefresh={handleRefresh}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ export { default as ExposurePanel } from './ExposurePanel';
 export { default as GreeksPanel } from './GreeksPanel';
 export { default as ChatPanel } from './ChatPanel';
 export { default as OrderApprovalModal } from './OrderApprovalModal';
+export { default as ExecutionResultModal } from './ExecutionResultModal';
 export type {
   OrderApprovalData,
   OrderApprovalModalProps,
@@ -17,3 +18,4 @@ export type {
   StrategyType,
   ConfidenceLevel,
 } from './OrderApprovalModal';
+export type { ExecutionResultModalProps } from './ExecutionResultModal';

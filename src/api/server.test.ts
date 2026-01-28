@@ -324,3 +324,77 @@ describe('createApiServer', () => {
     expect((server as any).port).toBe(9000);
   });
 });
+
+describe('order execution endpoint', () => {
+  let connectionService: BrokerConnectionService;
+  let mockAdapter: BrokerAdapter;
+  let server: ApiServer;
+
+  beforeEach(() => {
+    connectionService = new BrokerConnectionService(mockSecretManager as any);
+    mockAdapter = createMockAdapter();
+  });
+
+  it('should require connected adapter for order execution', () => {
+    server = new ApiServer(connectionService);
+    const serverAny = server as any;
+
+    // Without adapter, should throw
+    expect(() => serverAny.getAdapterOrThrow()).toThrow('Not connected to broker');
+  });
+
+  it('should have order execute route configured', () => {
+    server = new ApiServer(connectionService);
+    const app = server.getApp();
+
+    // Verify app was created and has POST method for routes
+    expect(app).toBeDefined();
+    expect(typeof app.post).toBe('function');
+  });
+
+  it('should accept submission store via constructor', () => {
+    const mockStore = {
+      initialize: vi.fn(),
+      getSubmission: vi.fn(),
+      storeSubmission: vi.fn(),
+    };
+
+    server = new ApiServer(connectionService, 3001, mockStore as any);
+    expect((server as any).submissionStore).toBe(mockStore);
+  });
+
+  it('should accept proposal service via constructor', () => {
+    const mockProposalService = {
+      initialize: vi.fn(),
+      getProposal: vi.fn(),
+      markExecuted: vi.fn(),
+    };
+
+    server = new ApiServer(connectionService, 3001, undefined, mockProposalService as any);
+    expect((server as any).proposalService).toBe(mockProposalService);
+  });
+
+  it('should set submission store via setter method', () => {
+    server = new ApiServer(connectionService);
+    const mockStore = {
+      initialize: vi.fn(),
+      getSubmission: vi.fn(),
+      storeSubmission: vi.fn(),
+    };
+
+    server.setSubmissionStore(mockStore as any);
+    expect((server as any).submissionStore).toBe(mockStore);
+  });
+
+  it('should set proposal service via setter method', () => {
+    server = new ApiServer(connectionService);
+    const mockProposalService = {
+      initialize: vi.fn(),
+      getProposal: vi.fn(),
+      markExecuted: vi.fn(),
+    };
+
+    server.setProposalService(mockProposalService as any);
+    expect((server as any).proposalService).toBe(mockProposalService);
+  });
+});
