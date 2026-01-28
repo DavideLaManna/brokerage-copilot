@@ -7,7 +7,7 @@
 
 import express, { Request, Response, NextFunction, Application } from 'express';
 import cors from 'cors';
-import type { BrokerAdapter, AccountSummary, Position, Order, OptionChainRequest } from '../types/broker.js';
+import type { BrokerAdapter, AccountSummary, Position, Order, OptionChainRequest, OrderRequest } from '../types/broker.js';
 import { BrokerConnectionService } from '../services/broker-connection.js';
 import { BrokerError, BrokerErrorCode } from '../types/errors.js';
 import { addLiquidityToChain, type OptionChainWithLiquidity } from '../services/liquidity.js';
@@ -16,6 +16,9 @@ import { calculatePortfolioGreeks, type PortfolioGreeks } from '../services/port
 import { DEFAULT_RISK_CONFIG, type RiskConfig } from '../types/risk-config.js';
 import { getPortfolioSnapshot } from '../tools/portfolio-snapshot.js';
 import { reviewPortfolio, formatReviewForDisplay, type PortfolioReviewResult } from '../agents/portfolio-review.js';
+import { RiskEngine, type OrderValidationResult } from '../services/risk-engine.js';
+import { buildDraftOrders, type BuildDraftOrdersResult, type DraftOrder } from '../services/draft-order-builder.js';
+import type { TradeProposal } from '../types/trade-proposal.js';
 
 /**
  * API response wrapper for consistent response format
@@ -321,6 +324,95 @@ export class ApiServer {
         res.json(this.wrapResponse({
           review,
           formattedReview,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Validate orders against risk rules
+    this.app.post('/api/orders/validate', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+        const { proposal } = req.body as { proposal: TradeProposal };
+
+        if (!proposal) {
+          res.status(400).json(this.wrapResponse(null, 'Missing proposal in request body'));
+          return;
+        }
+
+        // Fetch current portfolio state in parallel
+        const [account, positions] = await Promise.all([
+          adapter.getAccountSummary(),
+          adapter.getPositions(),
+        ]);
+
+        // Build draft orders from the proposal
+        const draftOrdersResult = buildDraftOrders(proposal);
+
+        // Validate each order against risk rules
+        const riskEngine = new RiskEngine();
+        const validationResults: OrderValidationResult[] = [];
+        let allValid = true;
+
+        for (const draftOrder of draftOrdersResult.orders) {
+          // Try to get quote for liquidity check (optional)
+          let quote = undefined;
+          try {
+            quote = await adapter.getQuote(draftOrder.orderRequest.symbol);
+          } catch {
+            // Quote fetch failed, proceed without liquidity check
+          }
+
+          const validation = riskEngine.validateOrder(draftOrder.orderRequest, {
+            config: DEFAULT_RISK_CONFIG,
+            account,
+            positions,
+            quote,
+          });
+
+          validationResults.push(validation);
+          if (!validation.valid) {
+            allValid = false;
+          }
+        }
+
+        // Combine validation results
+        const combinedChecks = validationResults.flatMap(v => v.checks);
+        const combinedRejections = validationResults.flatMap(v => v.rejectionReasons);
+        const uniqueRejections = [...new Set(combinedRejections)];
+
+        const combinedValidation: OrderValidationResult = {
+          valid: allValid,
+          checks: combinedChecks,
+          rejectionReasons: uniqueRejections,
+          validatedAt: new Date(),
+          order: draftOrdersResult.orders[0]?.orderRequest || {} as OrderRequest,
+        };
+
+        // Format draft orders for UI
+        const formattedOrders = draftOrdersResult.orders.map((order) => ({
+          description: `${order.orderRequest.side.toUpperCase()} ${order.orderRequest.quantity}x ${order.contractInfo.underlying}`,
+          side: order.orderRequest.side,
+          quantity: order.orderRequest.quantity,
+          underlying: order.contractInfo.underlying,
+          strike: order.contractInfo.strike,
+          expiration: order.contractInfo.expiration.toISOString(),
+          optionType: order.contractInfo.optionType,
+          limitPrice: order.orderRequest.limitPrice,
+          estimatedCost: order.estimatedCost,
+          idempotencyKey: order.idempotencyKey,
+        }));
+
+        res.json(this.wrapResponse({
+          orders: formattedOrders,
+          totalEstimatedCost: draftOrdersResult.totalEstimatedCost,
+          validation: {
+            ...combinedValidation,
+            validatedAt: combinedValidation.validatedAt.toISOString(),
+          },
+          warnings: draftOrdersResult.warnings,
+          correlationId: draftOrdersResult.correlationId,
         }));
       } catch (error) {
         next(error);

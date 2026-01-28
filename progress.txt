@@ -1114,3 +1114,86 @@
 - Estimated cost is positive for debits (buying), negative for credits (selling)
 - The draft order is NOT submitted - it must go through risk validation (US-011) first
 - Next feature to implement is US-022 (Order preview and approval UI)
+
+## 2026-01-28 - US-022: Order preview and approval UI (COMPLETED)
+
+### What was done:
+- Created src/ui/components/OrderApprovalModal.tsx with comprehensive order preview and approval functionality
+  - OrderApprovalData interface containing orders, validation, proposal info, and warnings
+  - DraftOrderInfo interface for UI-friendly order display
+  - TradeProposalInfo interface for proposal thesis and rationale
+  - OrderValidationResult and RiskCheckResult interfaces for risk check display
+- Implemented modal sections:
+  1. **Strategy Overview**: Strategy type badge, underlying symbol, confidence level badge (high/medium/low)
+  2. **Thesis & Rationale**: Thesis bullet points with accent styling, catalysts with arrow indicators
+  3. **Order Details**: Order cards for each leg showing:
+     - Side badge (BUY green / SELL red)
+     - Quantity, underlying, expiration (formatted), strike, option type badge
+     - Limit price (when applicable)
+     - Estimated cost (debit/credit with color coding)
+  4. **Total Cost**: Net debit/credit across all legs
+  5. **Risk Assessment**: Stats grid showing max loss, max loss %, risk/reward ratio, probability of profit
+  6. **Exit Plan**: Profit targets, stop loss (percent/price, trailing), max hold days
+  7. **Risk Checks**: Pass/fail summary, failed checks shown first with red X and details (actual vs limit), passed checks with green checkmark
+  8. **Warnings**: Yellow background section for builder warnings
+  9. **Rejection Summary**: Red banner when risk checks fail, listing all rejection reasons
+- Implemented modal actions:
+  - Approve button: Disabled when any risk checks fail, with tooltip explaining why
+  - Reject button: Two-step process with optional reason input
+  - Cancel button: Close modal without action
+  - ESC key to close, click overlay to close
+  - Keyboard accessibility and ARIA attributes
+- Added helper functions with exports for testing:
+  - formatStrategyType(): Maps strategy types to display names
+  - formatConfidence(): Maps confidence levels to display names
+  - formatRiskCheckType(): Maps check types to display names
+  - formatCurrency(): Formats currency with commas and 2 decimals
+  - formatDate(): Formats dates as "Feb 16, '24"
+  - getConfidenceBadgeClass(): Returns CSS class for confidence badge
+- Created POST /api/orders/validate endpoint in src/api/server.ts:
+  - Accepts TradeProposal in request body
+  - Fetches current account and positions in parallel
+  - Builds draft orders using buildDraftOrders()
+  - Validates each order against RiskEngine with DEFAULT_RISK_CONFIG
+  - Attempts to fetch quotes for liquidity checks (gracefully handles failures)
+  - Returns combined validation result with formatted orders for UI
+- Added comprehensive CSS styles in src/ui/styles/index.css:
+  - Modal overlay with fixed positioning and dark backdrop
+  - Modal container with flex layout and scrollable content
+  - Section styling with border separators
+  - Strategy header with badges
+  - Thesis and catalyst list styling
+  - Order card styling with badges
+  - Risk stats grid with responsive columns
+  - Risk check pass/fail indicators with icons and details
+  - Warnings section with yellow background
+  - Rejection summary with red border
+  - Reject input field
+  - Button variants: primary (blue), secondary (gray), danger (red)
+  - Confidence badges: high (green), medium (yellow), low (gray)
+- Updated src/ui/components/index.ts with component and type exports
+- Created src/ui/components/OrderApprovalModal.test.ts with 43 tests covering:
+  - All helper functions (formatStrategyType, formatConfidence, formatRiskCheckType, formatCurrency, formatDate, getConfidenceBadgeClass)
+  - Type validation for RiskCheckResult, OrderValidationResult, DraftOrderInfo, TradeProposalInfo, OrderApprovalData
+  - Multi-leg order data validation
+  - Optional fields handling
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (679 tests total - 43 new tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To use the OrderApprovalModal:
+  1. Import: `import { OrderApprovalModal, type OrderApprovalData } from './components'`
+  2. Prepare data: Build OrderApprovalData with orders, validation, proposal info
+  3. Render: `<OrderApprovalModal data={data} isOpen={isOpen} onClose={onClose} onApprove={handleApprove} onReject={handleReject} />`
+- To validate orders via API:
+  1. POST /api/orders/validate with { proposal: TradeProposal }
+  2. Response includes: orders (formatted), totalEstimatedCost, validation, warnings, correlationId
+- The modal is designed to integrate with the approval flow from US-024
+- Approve button is automatically disabled when validation.valid is false
+- The reject flow supports optional reason input (two-step process)
+- All CSS uses existing design system variables for consistency
+- The component does NOT submit orders - it only previews and captures approval/rejection
+- Next features to implement are US-023 (Place order via broker API) and US-024 (Order execution flow)

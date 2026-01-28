@@ -5,3 +5,15 @@ export { default as OptionChainTable } from './OptionChainTable';
 export { default as ExposurePanel } from './ExposurePanel';
 export { default as GreeksPanel } from './GreeksPanel';
 export { default as ChatPanel } from './ChatPanel';
+export { default as OrderApprovalModal } from './OrderApprovalModal';
+export type {
+  OrderApprovalData,
+  OrderApprovalModalProps,
+  DraftOrderInfo,
+  TradeProposalInfo,
+  OrderValidationResult,
+  RiskCheckResult,
+  RiskCheckType,
+  StrategyType,
+  ConfidenceLevel,
+} from './OrderApprovalModal';
