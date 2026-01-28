@@ -650,6 +650,33 @@ export default function App(): React.ReactElement {
   }, []);
 
   /**
+   * Handle order cancellation
+   * Returns success status and optional message
+   */
+  const handleCancelOrder = useCallback(async (orderId: string): Promise<{ success: boolean; message?: string }> => {
+    if (DEMO_MODE) {
+      // Simulate cancellation in demo mode
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      console.log('[ORDER CANCEL] Demo mode - simulating order cancellation:', orderId);
+      // Remove the order from state in demo mode
+      setOrders((prevOrders) => prevOrders.filter((o) => o.id !== orderId));
+      return { success: true, message: `Order ${orderId} has been canceled` };
+    }
+
+    try {
+      const result = await api.cancelOrder(orderId);
+      console.log('[ORDER CANCEL] Order canceled successfully:', result);
+      // Refresh orders list after successful cancellation
+      await handleRefresh();
+      return { success: true, message: result.message };
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Failed to cancel order';
+      console.error('[ORDER CANCEL] Failed to cancel order:', message);
+      return { success: false, message };
+    }
+  }, [handleRefresh]);
+
+  /**
    * Initial data load
    */
   useEffect(() => {
@@ -730,6 +757,7 @@ export default function App(): React.ReactElement {
           orders={orders}
           loading={loading}
           onRefresh={handleRefresh}
+          onCancelOrder={handleCancelOrder}
         />
 
         <ChatPanel

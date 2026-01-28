@@ -1366,3 +1366,69 @@
 - Demo mode simulates successful execution without calling API
 - TradeProposal status is updated if proposalService is configured in ApiServer
 - Next features to implement are US-025 (Cancel order functionality) or US-026 (Audit trail storage)
+
+## 2026-01-28 - US-025: Cancel order functionality (COMPLETED)
+
+### What was done:
+- Verified cancelOrder(orderId) already implemented in Tradier adapter (src/adapters/tradier/tradier-adapter.ts)
+  - Uses DELETE /accounts/{account_id}/orders/{id} endpoint
+  - Returns true on success, false if order already filled/canceled
+  - Handles 404 errors gracefully (returns false)
+- Added DELETE /api/orders/:orderId endpoint to API server (src/api/server.ts)
+  - Logs cancellation attempts with [ORDER CANCEL] prefix
+  - Returns { canceled: true, orderId, message } on success
+  - Returns 400 error if cancellation fails (order may be filled/canceled)
+- Added cancelOrder() method to UI API client (src/ui/services/api.ts)
+  - Added OrderCancelResponse type
+- Updated OrdersTable component (src/ui/components/OrdersTable.tsx) with:
+  - Cancel button for each cancelable order (open, pending, partially_filled statuses)
+  - canCancel() helper to determine if order can be canceled
+  - Confirmation dialog before cancellation with order description
+  - "Keep Order" and "Cancel Order" buttons in dialog
+  - Success message banner (green) that auto-dismisses after 3 seconds
+  - Error message banner (red) that auto-dismisses after 5 seconds
+  - Disabled state while cancellation is in progress
+  - Exported helper functions (formatCurrency, formatDate, formatTime, etc.) for testing
+- Added handleCancelOrder() in App.tsx
+  - Calls api.cancelOrder() in live mode
+  - Simulates cancellation locally in demo mode (removes order from state)
+  - Logs cancellation action with [ORDER CANCEL] prefix
+  - Refreshes portfolio data after successful cancellation
+  - Returns { success, message } for UI to display appropriate feedback
+- Added comprehensive CSS styles for cancel button and confirmation dialog
+  - .btn--cancel: Transparent background, hover turns red
+  - .btn--small: Smaller padding for inline buttons
+  - .cancel-message, .cancel-message--success, .cancel-message--error
+  - .cancel-dialog with header, content, order description, warning, and actions
+- Added API server tests (src/api/server.test.ts): 5 tests for order cancellation
+  - Requires connected adapter
+  - DELETE route configuration
+  - Adapter cancelOrder called correctly
+  - Handles cancellation failure
+  - Handles broker errors
+- Added OrdersTable component tests (src/ui/components/OrdersTable.test.ts): 20 tests
+  - formatCurrency: positive, zero, large numbers, negative, rounding
+  - formatDate: correct format, different months
+  - formatTime: correct format
+  - getOrderTypeLabel: market, limit, stop, stop_limit
+  - getContractDescription: equity, call options, put options, missing optionDetails
+  - Order status helpers: cancelable and non-cancelable statuses
+  - Order types validation
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (787 tests total - 25 new tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To cancel an order:
+  1. Click "Cancel" button on any open/pending/partially_filled order in the Orders table
+  2. Confirm in the dialog by clicking "Cancel Order"
+  3. Success/error message appears below the section header
+  4. Orders list is automatically refreshed on success
+- The Cancel button only appears for orders in cancelable statuses
+- The dialog shows order details (side, quantity, contract description) before confirming
+- Cancellation is logged to console with [ORDER CANCEL] prefix for debugging
+- Demo mode simulates cancellation without calling API (removes order from local state)
+- The Tradier adapter's cancelOrder returns false (not an error) for orders that can't be canceled
+- Next features to implement are US-026 (Audit trail storage) or US-027 (Decision journal UI)

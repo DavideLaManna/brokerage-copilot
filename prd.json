@@ -397,8 +397,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Implemented full order cancellation functionality. (1) cancelOrder(orderId) already implemented in Tradier adapter (src/adapters/tradier/tradier-adapter.ts) using DELETE /accounts/{account_id}/orders/{id} endpoint, returns true on success, false if order already filled/canceled. (2) Added DELETE /api/orders/:orderId endpoint to API server with logging of cancellation attempts and results. (3) Added cancelOrder() method to UI API client (src/ui/services/api.ts). (4) Updated OrdersTable component with Cancel button for each cancelable order (open, pending, partially_filled statuses), confirmation dialog before cancellation, success/error message banners with auto-dismiss, disabled state while canceling. (5) Added handleCancelOrder() in App.tsx that calls API, logs action, and refreshes orders list on success. (6) Demo mode simulates cancellation locally. (7) Added comprehensive CSS styles for cancel button, confirmation dialog, and message banners. Added 5 API server tests and 20 OrdersTable component tests (787 total tests pass). Typecheck passes. UI builds successfully."
     },
     {
       "id": "US-026",

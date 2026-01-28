@@ -347,6 +347,15 @@ export const api = {
       body: JSON.stringify(params),
     });
   },
+
+  /**
+   * Cancel an open order
+   */
+  async cancelOrder(orderId: string): Promise<OrderCancelResponse> {
+    return fetchApi<OrderCancelResponse>(`/api/orders/${encodeURIComponent(orderId)}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // ============================================================================
@@ -491,6 +500,12 @@ export interface OrderExecutionResponse {
   brokerOrderIds: string[];
   errorMessage?: string;
   executedAt: string;
+}
+
+export interface OrderCancelResponse {
+  canceled: boolean;
+  orderId: string;
+  message: string;
 }
 
 export default api;

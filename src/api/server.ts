@@ -757,6 +757,40 @@ export class ApiServer {
       }
     });
 
+    // Cancel an order by ID
+    this.app.delete('/api/orders/:orderId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+        const orderId = req.params.orderId as string;
+
+        if (!orderId) {
+          res.status(400).json(this.wrapResponse(null, 'Missing orderId parameter'));
+          return;
+        }
+
+        // Log the cancellation attempt
+        console.log(`[ORDER CANCEL] Attempting to cancel order ${orderId}`);
+
+        // Attempt to cancel the order
+        const success = await adapter.cancelOrder(orderId);
+
+        if (success) {
+          console.log(`[ORDER CANCEL] Successfully canceled order ${orderId}`);
+          res.json(this.wrapResponse({
+            canceled: true,
+            orderId,
+            message: `Order ${orderId} has been canceled`,
+          }));
+        } else {
+          console.log(`[ORDER CANCEL] Failed to cancel order ${orderId} - order may already be filled or canceled`);
+          res.status(400).json(this.wrapResponse(null, `Unable to cancel order ${orderId}. It may already be filled or canceled.`));
+        }
+      } catch (error) {
+        console.error(`[ORDER CANCEL] Error canceling order:`, error);
+        next(error);
+      }
+    });
+
     // Get order submission status by idempotency key
     this.app.get('/api/orders/status/:idempotencyKey', async (req: Request, res: Response, next: NextFunction) => {
       try {
