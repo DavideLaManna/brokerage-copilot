@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { AccountSummary, PositionsTable, OrdersTable, ExposurePanel, GreeksPanel } from './components';
+import { AccountSummary, PositionsTable, OrdersTable, ExposurePanel, GreeksPanel, ChatPanel } from './components';
 import { api, ApiError } from './services';
 import type {
   AccountSummary as AccountSummaryType,
@@ -572,6 +572,10 @@ export default function App(): React.ReactElement {
           orders={orders}
           loading={loading}
           onRefresh={handleRefresh}
+        />
+
+        <ChatPanel
+          demoMode={DEMO_MODE}
         />
       </div>
     </div>

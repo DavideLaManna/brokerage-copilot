@@ -983,3 +983,70 @@
 - Custom thresholds can be passed to reviewPortfolio(): `reviewPortfolio(snapshot, { pnlLossThreshold: -30 })`
 - Default thresholds: 50% P&L loss/gain, 7 days expiration, 10% concentration, 500 delta, $100 theta
 - Next feature to implement is US-020 (Chat interface for agent interaction)
+
+## 2026-01-28 - US-020: Chat interface for agent interaction (COMPLETED)
+
+### What was done:
+- Created ChatPanel UI component (src/ui/components/ChatPanel.tsx) with comprehensive chat functionality:
+  - Message list display with separate styling for user and assistant messages
+  - User input form with text field and send button
+  - Quick action buttons (Review, Exposure) for common commands
+  - Typing indicator animation during processing
+  - Auto-scroll to latest messages
+  - Loading state handling
+- Implemented command parsing to recognize:
+  - Review commands: 'review portfolio', 'analyze portfolio', 'check portfolio', 'portfolio review'
+  - Exposure commands: 'show exposure', 'check concentration', 'show risk'
+  - Help command: 'help', '?', 'what can you do'
+  - Unknown commands with helpful suggestions
+- Added markdown formatting for agent responses:
+  - Headers (## and ###)
+  - Lists (- and *)
+  - Bold text (**)
+  - Priority tags ([HIGH], [MED], [LOW]) with color-coded badges
+  - Severity indicators ([!], [*], [-]) for critical/warning/info
+  - Indented text for details
+- Created API endpoint POST /api/chat/review in src/api/server.ts:
+  - Fetches portfolio snapshot using getPortfolioSnapshot()
+  - Runs portfolio review using reviewPortfolio() from agents
+  - Formats review using formatReviewForDisplay()
+  - Returns both structured review data and formatted markdown
+- Added ChatPanel.types.ts with types mirroring backend (PortfolioReviewResult, RecommendedAction, AnalysisFinding)
+- Created comprehensive CSS styling in src/ui/styles/index.css:
+  - .chat-panel layout with flex column
+  - .chat-messages container with overflow scroll
+  - .chat-message styling (user vs assistant)
+  - .chat-typing animation for processing indicator
+  - .chat-input-form with input and submit button
+  - .tag and .severity classes for formatting
+  - Responsive design support
+- Integrated ChatPanel into App.tsx dashboard
+- Demo mode support with mock review data
+- Created ChatPanel.test.ts with 14 tests covering:
+  - Command parsing (review, exposure, help, unknown)
+  - Markdown formatting (headers, lists, bold, tags, severity)
+  - Message ID generation
+  - Help message content
+  - ChatMessage and ChatPanelProps types
+- Added 2 API server tests for chat review endpoint
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (578 tests total - 16 new tests)
+- `npm run build:ui` successfully builds production bundle
+
+### Notes for next developer:
+- To use the chat interface:
+  1. The ChatPanel is already integrated into the dashboard
+  2. Users can type commands or use quick action buttons
+  3. In demo mode (VITE_DEMO_MODE=true), mock data is used
+  4. In live mode, the /api/chat/review endpoint is called
+- Supported commands:
+  - "review portfolio" / "analyze portfolio" - Full portfolio review with recommendations
+  - "show exposure" / "check concentration" - View exposure by underlying
+  - "help" - List available commands
+- The chat panel supports markdown formatting in responses
+- Agent responses include health assessment, findings, and recommended actions
+- The agent does NOT execute orders - it only provides recommendations
+- To extend with new commands, add patterns to parseCommand() and handlers
+- Next feature to implement is US-021 (Draft order builder)

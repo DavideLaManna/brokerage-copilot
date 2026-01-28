@@ -4,3 +4,4 @@ export { default as OrdersTable } from './OrdersTable';
 export { default as OptionChainTable } from './OptionChainTable';
 export { default as ExposurePanel } from './ExposurePanel';
 export { default as GreeksPanel } from './GreeksPanel';
+export { default as ChatPanel } from './ChatPanel';

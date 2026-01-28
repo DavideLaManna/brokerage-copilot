@@ -15,6 +15,7 @@ import { calculatePortfolioExposure, type PortfolioExposure } from '../services/
 import { calculatePortfolioGreeks, type PortfolioGreeks } from '../services/portfolio-greeks.js';
 import { DEFAULT_RISK_CONFIG, type RiskConfig } from '../types/risk-config.js';
 import { getPortfolioSnapshot } from '../tools/portfolio-snapshot.js';
+import { reviewPortfolio, formatReviewForDisplay, type PortfolioReviewResult } from '../agents/portfolio-review.js';
 
 /**
  * API response wrapper for consistent response format
@@ -298,6 +299,29 @@ export class ApiServer {
         const snapshot = await getPortfolioSnapshot(adapter, { concentrationLimit });
 
         res.json(this.wrapResponse(snapshot));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Chat - Generate portfolio review
+    this.app.post('/api/chat/review', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        // Build portfolio snapshot for review
+        const snapshot = await getPortfolioSnapshot(adapter);
+
+        // Run portfolio review
+        const review = reviewPortfolio(snapshot);
+
+        // Format for display
+        const formattedReview = formatReviewForDisplay(review);
+
+        res.json(this.wrapResponse({
+          review,
+          formattedReview,
+        }));
       } catch (error) {
         next(error);
       }

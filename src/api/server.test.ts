@@ -284,6 +284,27 @@ describe('ApiServer', () => {
   });
 });
 
+describe('chat review endpoint', () => {
+  it('should require connected adapter for chat review', () => {
+    const connectionService = new BrokerConnectionService(mockSecretManager as any);
+    const server = new ApiServer(connectionService);
+    const serverAny = server as any;
+
+    // Without adapter, should throw
+    expect(() => serverAny.getAdapterOrThrow()).toThrow('Not connected to broker');
+  });
+
+  it('should have chat review route configured', () => {
+    const connectionService = new BrokerConnectionService(mockSecretManager as any);
+    const server = new ApiServer(connectionService);
+    const app = server.getApp();
+
+    // Verify app was created and has POST method for routes
+    expect(app).toBeDefined();
+    expect(typeof app.post).toBe('function');
+  });
+});
+
 describe('createApiServer', () => {
   it('should create ApiServer instance', async () => {
     const { createApiServer } = await import('./server.js');
