@@ -157,3 +157,25 @@ export {
   type OrderRepricingServiceConfig,
   type RepricingServiceLogger,
 } from './order-repricing.js';
+
+export {
+  proposeExitLadder,
+  proposeExitLadderPreset,
+  proposeExitLadderFromTargets,
+  calculateExitPrice,
+  calculateContractsToClose,
+  validateRungPercentages,
+  validateExitLadderConfig,
+  formatExitLadderOrder,
+  formatExitLadderProposal,
+  toBuiltDraftOrdersResult,
+  PRESET_LADDERS,
+  DEFAULT_EXIT_LADDER_CONFIG,
+  ExitLadderRungSchema,
+  ExitLadderConfigSchema,
+  type ExitLadderRung,
+  type ExitLadderConfig,
+  type ExitLadderOrder,
+  type ExitLadderProposal,
+  type ExitLadderValidationContext,
+} from './exit-ladder-builder.js';

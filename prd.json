@@ -475,8 +475,8 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive exit ladder builder service (src/services/exit-ladder-builder.ts). (1) Core types: ExitLadderRung (targetProfitPercent, closePercent), ExitLadderConfig (rungs array, orderType, timeInForce, validateOrders), ExitLadderOrder (draftOrder, exitPrice, contractsToClose, estimatedCredit/Profit, validationResult), ExitLadderProposal (orders, correlationId, validationSummary). (2) proposeExitLadder(position, config, validationContext) main function: calculates exit prices from cost basis and target profit %, allocates contracts across rungs (last rung takes remaining), builds DraftOrders with idempotency keys, validates each order via RiskEngine, returns structured proposal with total credit/profit estimates. (3) Preset ladders: PRESET_LADDERS.conservative (15/30/50%), PRESET_LADDERS.standard (25/50/100%), PRESET_LADDERS.aggressive (50/100/200%). (4) Helper functions: calculateExitPrice(), calculateContractsToClose() with isLastRung handling, validateRungPercentages(), validateExitLadderConfig(), proposeExitLadderPreset(), proposeExitLadderFromTargets(). (5) Formatting: formatExitLadderOrder(), formatExitLadderProposal() for display output. (6) toBuiltDraftOrdersResult() converts to BuildDraftOrdersResult format for order submission compatibility. (7) Zod schemas: ExitLadderRungSchema, ExitLadderConfigSchema for validation. (8) Features: GTC limit orders by default, generates correlation ID for linked orders, validates rungs total ~100%, warns for short positions and equity, handles single-contract positions. Added 66 comprehensive tests (1024 total). Typecheck passes."
     },
     {
       "id": "US-031",

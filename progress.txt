@@ -1680,3 +1680,76 @@
 - The UI component AutoRepriceNotifications can be integrated into the dashboard to display auto-reprice activity
 - All auto-reprice actions are clearly tagged with [AUTO-HOUSEKEEPING] in the audit log for compliance tracking
 - Next user story to implement: US-030 (Exit ladder builder)
+
+## 2026-01-29 - US-030: Exit ladder builder (COMPLETED)
+
+### What was done:
+- Created comprehensive exit ladder builder service for staged profit-taking orders
+- Implemented proposeExitLadder(position, targets) function as required
+- Supports configurable profit targets (e.g., [+25%, +50%, +100%] premium gain)
+- Generates multiple limit orders at calculated exit prices
+- Validates each order against risk rules via RiskEngine integration
+- Returns structured ExitLadderProposal for user approval
+
+### Core Types Created (src/services/exit-ladder-builder.ts):
+- ExitLadderRung: { targetProfitPercent, closePercent } - single profit target
+- ExitLadderConfig: { rungs[], orderType, timeInForce, validateOrders }
+- ExitLadderOrder: { draftOrder, exitPrice, contractsToClose, estimatedCredit, estimatedProfit, validationResult }
+- ExitLadderProposal: { proposalId, position, orders[], correlationId, totalContractsToExit, totalEstimatedCredit, validationSummary, warnings }
+- ExitLadderValidationContext: { riskConfig, account, otherPositions, quote }
+
+### Preset Ladders (PRESET_LADDERS):
+- conservative: [15%, 30%, 50%] - take profits early and often
+- standard: [25%, 50%, 100%] - balanced targets (default)
+- aggressive: [50%, 100%, 200%] - let winners run longer
+
+### Key Functions:
+- proposeExitLadder(position, config, validationContext?) - main builder function
+- proposeExitLadderPreset(position, preset, validationContext?) - use preset ladder
+- proposeExitLadderFromTargets(position, targets[], validationContext?) - from target array
+- calculateExitPrice(costBasis, targetProfitPercent) - compute exit price
+- calculateContractsToClose(totalQuantity, closePercent, previouslyClosed, isLastRung) - allocate contracts
+- validateRungPercentages(rungs) - ensure rungs total ~100%
+- validateExitLadderConfig(config) - full config validation with Zod
+- formatExitLadderOrder(order) / formatExitLadderProposal(proposal) - display formatting
+- toBuiltDraftOrdersResult(proposal) - convert for order submission compatibility
+
+### Implementation Details:
+- Exit prices calculated as: costBasis * (1 + targetProfitPercent/100)
+- Contracts allocated across rungs, with last rung taking all remaining
+- Each order gets unique idempotency key (UUID) for duplicate prevention
+- All orders linked via correlationId for tracking
+- GTC (Good Till Canceled) limit orders by default
+- Validation optional but enabled by default
+- Handles edge cases: single contract positions, uneven distribution, short positions (with warning)
+
+### Exports Added to src/services/index.ts:
+- proposeExitLadder, proposeExitLadderPreset, proposeExitLadderFromTargets
+- calculateExitPrice, calculateContractsToClose
+- validateRungPercentages, validateExitLadderConfig
+- formatExitLadderOrder, formatExitLadderProposal, toBuiltDraftOrdersResult
+- PRESET_LADDERS, DEFAULT_EXIT_LADDER_CONFIG
+- ExitLadderRungSchema, ExitLadderConfigSchema
+- Types: ExitLadderRung, ExitLadderConfig, ExitLadderOrder, ExitLadderProposal, ExitLadderValidationContext
+
+### Files created:
+- src/services/exit-ladder-builder.ts (main service)
+- src/services/exit-ladder-builder.test.ts (66 tests)
+
+### Files modified:
+- src/services/index.ts (added exports)
+- prd.json (marked US-030 as complete)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1024 tests total, 66 new tests for exit ladder builder)
+
+### Notes for next developer:
+- Exit ladders are designed for long option positions (quantity > 0)
+- The service warns but still works for equity positions or short positions
+- Position's averageCost is used as the cost basis for profit calculations
+- Validation uses RiskEngine from US-011 for comprehensive risk checks
+- DraftOrders from this service are compatible with OrderSubmissionService from US-023
+- The ExitLadderProposal includes all data needed for the UI modal (US-031)
+- toBuiltDraftOrdersResult() provides compatibility with existing order submission flow
+- Next user story to implement: US-031 (Exit ladder UI)
