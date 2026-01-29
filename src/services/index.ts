@@ -149,3 +149,11 @@ export {
   type AuditLogServiceOptions,
   type AuditLogServiceLogger,
 } from './audit-log.js';
+
+export {
+  OrderRepricingService,
+  createOrderRepricingService,
+  evaluateOrderForRepricing,
+  type OrderRepricingServiceConfig,
+  type RepricingServiceLogger,
+} from './order-repricing.js';

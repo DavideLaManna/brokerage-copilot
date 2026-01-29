@@ -1560,3 +1560,54 @@
 - Next feature to implement is US-028 (Order repricing engine)
 - Consider adding keyboard navigation for journal entries
 - The journal uses the same audit log infrastructure as the rest of the system, so all events are automatically captured
+
+## 2026-01-29 - US-028: Order repricing engine (COMPLETED)
+
+### What was done:
+- Created src/types/repricing.ts with complete repricing type definitions:
+  - RepricingConfig: priceDeviationThreshold (default 5%), minOrderAgeSeconds (default 300), repriceBandPercent (default 2%), includeOptions/includeEquities filters, maxOrdersPerScan (default 50), minMidPrice
+  - RepricingProposal: Full proposal with orderId, symbol, assetClass, side, currentLimitPrice, currentMidPrice, currentBid/Ask, deviationPercent, proposedLimitPrice, improvementPercent, rationale array, status lifecycle (proposed/approved/rejected/executed/failed/expired)
+  - StoredRepricingProposal with schema version
+  - OrderModification and OrderModificationResult for execution tracking
+  - RepricingScanResult for batch scanning results
+  - Zod schemas: RepricingConfigSchema, RepricingProposalSchema
+  - Helper functions: calculateDeviationPercent(), calculateProposedPrice() (buy below mid, sell above mid), orderQualifiesForRepricing() with 7 validation checks, generateRepricingRationale(), formatRepricingProposal(), validateRepricingConfig()
+- Created src/services/order-repricing.ts with OrderRepricingService class:
+  - scanOpenOrders(): Scans all open orders and generates repricing proposals
+  - evaluateOrder(): Evaluates a single order for repricing opportunity
+  - generateProposal(): Creates detailed proposal with deviation analysis, market context, fill probability hints
+  - In-memory proposal storage: getProposal(), getProposals(), getPendingProposals()
+  - approveProposal(): Marks proposal as approved but does NOT execute (requires explicit execution)
+  - rejectProposal(): Marks proposal as rejected with optional reason
+  - executeProposal(): Performs cancel-and-replace via broker adapter (cancel original, place new order with proposed price)
+  - Config management: updateConfig(), getConfig()
+  - Statistics: getStatistics() returns proposal counts by status
+  - clearProposals(): Clears all stored proposals
+- Standalone evaluateOrderForRepricing() function for use without full service
+- Factory function createOrderRepricingService()
+- Full audit trail integration via AuditLogService (logs approval, rejection, modification events)
+- Exports added to src/services/index.ts and src/types/index.ts
+- Created src/services/order-repricing.test.ts with 64 comprehensive tests covering:
+  - Helper functions: deviation calculation, proposed price calculation, qualification checks, rationale generation, config validation
+  - Service operations: scanning, evaluation, proposal generation, lifecycle (approve/reject/execute)
+  - Edge cases: quote fetch errors, cancel failures, config management
+
+### Key Design Decisions:
+1. **Cancel-and-replace pattern**: Most brokers don't support in-place order modification, so we cancel the original order and place a new one with the updated price
+2. **No auto-execution**: Repricing proposals require explicit approval before execution - the system proposes but doesn't act without consent
+3. **Configurable thresholds**: All key parameters (deviation threshold, reprice band, order age, asset class filters) are configurable
+4. **Detailed rationale**: Each proposal includes human-readable rationale explaining the market context and improvement
+5. **Full lifecycle tracking**: Proposals track status through proposed → approved/rejected → executed/failed
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (930 tests total, 64 new tests for repricing)
+
+### Notes for next developer:
+- The project is now ready for US-029 (Auto-reprice approval setting)
+- OrderRepricingService uses MarketDataService for quotes (benefits from caching)
+- The execute flow uses cancel-and-replace - watch for race conditions if the original order fills during the cancel
+- Consider adding UI components for displaying and managing repricing proposals
+- The minOrderAgeSeconds config (default 5 minutes) prevents repricing orders that were just placed
+- Audit trail integration logs all approval/rejection/execution events for compliance
+

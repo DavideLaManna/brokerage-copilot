@@ -157,3 +157,27 @@ export {
   validateAuditLogEntry,
   AUDIT_LOG_SCHEMA_VERSION,
 } from './audit-log.js';
+
+// Order repricing types
+export type {
+  RepricingConfig,
+  RepricingProposalStatus,
+  RepricingProposal,
+  StoredRepricingProposal,
+  OrderModification,
+  OrderModificationResult,
+  RepricingScanResult,
+} from './repricing.js';
+
+export {
+  RepricingConfigSchema,
+  RepricingProposalSchema,
+  DEFAULT_REPRICING_CONFIG,
+  REPRICING_SCHEMA_VERSION,
+  calculateDeviationPercent,
+  calculateProposedPrice,
+  orderQualifiesForRepricing,
+  generateRepricingRationale,
+  formatRepricingProposal,
+  validateRepricingConfig,
+} from './repricing.js';
