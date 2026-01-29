@@ -1432,3 +1432,72 @@
 - Demo mode simulates cancellation without calling API (removes order from local state)
 - The Tradier adapter's cancelOrder returns false (not an error) for orders that can't be canceled
 - Next features to implement are US-026 (Audit trail storage) or US-027 (Decision journal UI)
+
+## 2026-01-29 - US-026: Audit trail storage (COMPLETED)
+
+### What was done:
+- Created comprehensive audit log types in src/types/audit-log.ts (already existed, verified complete):
+  - AuditEventType: 11 event types (recommendation, approval, rejection, execution, cancellation, modification, fill, risk_check, config_change, connection, error)
+  - AuditActor: user, agent, system, broker
+  - InitiatorTag: human_initiated, agent_initiated, system_initiated
+  - AuditLogEntry: id (UUID), timestamp (ISO 8601), eventType, actor, accountId, proposalId, orderId, correlationId, initiatorTag, details, dataSources, summary
+  - AuditDataSource: sourceType, description, retrievedAt, reference
+- Created typed detail interfaces for each event type:
+  - RecommendationDetails: strategyType, underlying, confidence, thesis[], catalysts[], contractCount, estimatedMaxLoss
+  - ApprovalDetails: strategyType, underlying, orderCount, estimatedCost, riskChecksPassed, warnings
+  - RejectionDetails: strategyType, underlying, reason, rejectedBy, failedChecks
+  - ExecutionDetails: symbol, underlying, side, quantity, orderType, limitPrice, idempotencyKey, brokerOrderId, success, errorMessage
+  - CancellationDetails: symbol, brokerOrderId, reason, success, errorMessage
+  - ModificationDetails: symbol, brokerOrderId, modificationType, previousValue, newValue, success
+  - FillDetails: symbol, brokerOrderId, filledQuantity, totalQuantity, fillPrice, isComplete, commission
+  - RiskCheckDetails: trigger, symbol, passed, checks[], totalChecks, passedChecks
+  - ConfigChangeDetails: configType, field, previousValue, newValue, configId
+  - ConnectionDetails: action, brokerType, success, errorMessage
+  - ErrorDetails: category, errorCode, errorMessage, operation, recoverable, stackTrace
+- Created Zod schemas for validation: AuditLogEntrySchema, StoredAuditLogEntrySchema, all detail schemas
+- Added helper functions: getInitiatorTag(), formatEventType(), formatActor(), generateEventSummary(), validateAuditLogEntry()
+- Exported all types and schemas from src/types/index.ts
+- Created AuditLogService class (src/services/audit-log.ts) with:
+  - Generic log() method for logging any event
+  - Specialized logging methods: logRecommendation(), logApproval(), logRejection(), logExecution(), logCancellation(), logFill(), logRiskCheck(), logConfigChange(), logConnection(), logError()
+  - Query methods: query() with comprehensive filtering (eventTypes, actor, initiatorTag, proposalId, orderId, correlationId, startDate, endDate), pagination (limit, offset), and sorting (asc/desc)
+  - Retrieval methods: getEntry(), getProposalHistory(), getCorrelatedEntries(), getEntriesGroupedByDay()
+  - Statistics: getEntryCount(), getTotalEntryCount(), getStatistics()
+  - Encrypted storage per account using AES-256-GCM in .config/audit-logs/
+  - createAuditLogServiceFromEnv() factory function
+  - createAuditLogger() standalone function creator
+- Added AuditLogService exports to src/services/index.ts
+- Created comprehensive tests in src/services/audit-log.test.ts (67 tests) covering:
+  - Type helper functions (getInitiatorTag, formatEventType, formatActor, generateEventSummary, validateAuditLogEntry)
+  - AuditLogService constructor validation
+  - Generic log() method
+  - All specialized log methods (recommendation, approval, rejection, execution, cancellation, fill, risk_check, config_change, connection, error)
+  - Query functionality (filtering, pagination, sorting)
+  - Retrieval methods (getEntry, getProposalHistory, getCorrelatedEntries, getEntriesGroupedByDay)
+  - Statistics calculation
+  - Persistence (save/load, restart, multi-account isolation)
+  - createAuditLogger and createAuditLogServiceFromEnv
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (854 tests total - 67 new audit log tests)
+
+### Notes for next developer:
+- To use the AuditLogService:
+  1. Create service: `const service = new AuditLogService({ masterPassword: '...' })`
+  2. Initialize: `await service.initialize()`
+  3. Log events using specialized methods:
+     - `await service.logRecommendation({ accountId, strategyType, underlying, ... })`
+     - `await service.logApproval({ accountId, strategyType, underlying, orderCount, ... })`
+     - `await service.logExecution({ accountId, symbol, side, quantity, idempotencyKey, success, ... })`
+     - `await service.logCancellation({ accountId, symbol, brokerOrderId, success, ... })`
+  4. Query logs: `const result = service.query(accountId, { eventTypes: ['execution'], startDate, endDate })`
+  5. Get proposal history: `const history = service.getProposalHistory(accountId, proposalId)`
+- All entries are automatically tagged with initiatorTag (human_initiated, agent_initiated, system_initiated)
+- Every entry includes: id (UUID), timestamp (ISO), eventType, actor, accountId, details, summary
+- Optional fields: proposalId, orderId, correlationId, dataSources
+- Correlation ID links related events (e.g., multi-leg orders submitted together)
+- Data sources track where information came from (portfolio_snapshot, option_chain, etc.)
+- Logs are encrypted per account and stored in .config/audit-logs/
+- The service auto-generates summaries via generateEventSummary() if not provided
+- Next feature to implement is US-027 (Decision journal UI) which will use this audit trail

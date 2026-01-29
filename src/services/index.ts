@@ -141,3 +141,11 @@ export {
   type OrderSubmissionServiceConfig,
   type OrderSubmissionLogger,
 } from './order-submission.js';
+
+export {
+  AuditLogService,
+  createAuditLogServiceFromEnv,
+  createAuditLogger,
+  type AuditLogServiceOptions,
+  type AuditLogServiceLogger,
+} from './audit-log.js';
