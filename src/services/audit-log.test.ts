@@ -988,3 +988,216 @@ describe('createAuditLogServiceFromEnv', () => {
     ).rejects.toThrow('Master password not found');
   });
 });
+
+describe('AuditLogService note operations', () => {
+  let service: AuditLogService;
+  const testAccountId = 'test-notes-account';
+
+  beforeEach(async () => {
+    // Clean up test directory
+    if (fs.existsSync(TEST_AUDIT_DIR)) {
+      fs.rmSync(TEST_AUDIT_DIR, { recursive: true });
+    }
+
+    service = new AuditLogService({
+      masterPassword: TEST_PASSWORD,
+      auditLogDir: TEST_AUDIT_DIR,
+    });
+    await service.initialize();
+  });
+
+  afterEach(() => {
+    service.clearMemory();
+    if (fs.existsSync(TEST_AUDIT_DIR)) {
+      fs.rmSync(TEST_AUDIT_DIR, { recursive: true });
+    }
+  });
+
+  describe('addNote', () => {
+    it('adds a note to an existing entry', async () => {
+      // Create an entry first
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      // Add a note
+      const updatedEntry = await service.addNote(testAccountId, entry.id, 'Test note content');
+
+      expect(updatedEntry).not.toBeNull();
+      expect(updatedEntry!.notes).toHaveLength(1);
+      expect(updatedEntry!.notes![0]!.text).toBe('Test note content');
+      expect(updatedEntry!.notes![0]!.id).toBeDefined();
+      expect(updatedEntry!.notes![0]!.addedAt).toBeDefined();
+    });
+
+    it('adds multiple notes to an entry', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      await service.addNote(testAccountId, entry.id, 'First note');
+      const updatedEntry = await service.addNote(testAccountId, entry.id, 'Second note');
+
+      expect(updatedEntry!.notes).toHaveLength(2);
+      expect(updatedEntry!.notes![0]!.text).toBe('First note');
+      expect(updatedEntry!.notes![1]!.text).toBe('Second note');
+    });
+
+    it('returns null for non-existent entry', async () => {
+      const result = await service.addNote(testAccountId, 'non-existent-id', 'Note text');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for non-existent account', async () => {
+      const result = await service.addNote('non-existent-account', 'entry-id', 'Note text');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('updateNote', () => {
+    it('updates an existing note', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      const entryWithNote = await service.addNote(testAccountId, entry.id, 'Original text');
+      const noteId = entryWithNote!.notes![0]!.id;
+
+      const updatedEntry = await service.updateNote(testAccountId, entry.id, noteId, 'Updated text');
+
+      expect(updatedEntry).not.toBeNull();
+      expect(updatedEntry!.notes![0]!.text).toBe('Updated text');
+      expect(updatedEntry!.notes![0]!.updatedAt).toBeDefined();
+    });
+
+    it('returns null for non-existent note', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      const result = await service.updateNote(testAccountId, entry.id, 'non-existent-note', 'Text');
+      expect(result).toBeNull();
+    });
+
+    it('returns null for entry without notes', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      const result = await service.updateNote(testAccountId, entry.id, 'note-id', 'Text');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('deleteNote', () => {
+    it('deletes an existing note', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      const entryWithNote = await service.addNote(testAccountId, entry.id, 'Note to delete');
+      const noteId = entryWithNote!.notes![0]!.id;
+
+      const updatedEntry = await service.deleteNote(testAccountId, entry.id, noteId);
+
+      expect(updatedEntry).not.toBeNull();
+      expect(updatedEntry!.notes).toBeUndefined();
+    });
+
+    it('removes notes array when last note is deleted', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      const entryWithNote = await service.addNote(testAccountId, entry.id, 'Only note');
+      const noteId = entryWithNote!.notes![0]!.id;
+
+      const updatedEntry = await service.deleteNote(testAccountId, entry.id, noteId);
+
+      expect(updatedEntry!.notes).toBeUndefined();
+    });
+
+    it('keeps other notes when one is deleted', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      await service.addNote(testAccountId, entry.id, 'Keep this note');
+      const entryWithNotes = await service.addNote(testAccountId, entry.id, 'Delete this note');
+      const noteToDeleteId = entryWithNotes!.notes![1]!.id;
+
+      const updatedEntry = await service.deleteNote(testAccountId, entry.id, noteToDeleteId);
+
+      expect(updatedEntry!.notes).toHaveLength(1);
+      expect(updatedEntry!.notes![0]!.text).toBe('Keep this note');
+    });
+
+    it('returns null for non-existent note', async () => {
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      await service.addNote(testAccountId, entry.id, 'Existing note');
+
+      const result = await service.deleteNote(testAccountId, entry.id, 'non-existent-note');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('note persistence', () => {
+    it('persists notes across service restarts', async () => {
+      // Create entry with note
+      const entry = await service.logConnection({
+        accountId: testAccountId,
+        action: 'connect',
+        brokerType: 'tradier',
+        success: true,
+      });
+
+      await service.addNote(testAccountId, entry.id, 'Persisted note');
+      service.clearMemory();
+
+      // Create new service instance and reload
+      const newService = new AuditLogService({
+        masterPassword: TEST_PASSWORD,
+        auditLogDir: TEST_AUDIT_DIR,
+      });
+      await newService.initialize();
+
+      // Verify note was persisted
+      const loadedEntry = newService.getEntry(testAccountId, entry.id);
+      expect(loadedEntry).not.toBeNull();
+      expect(loadedEntry!.notes).toHaveLength(1);
+      expect(loadedEntry!.notes![0]!.text).toBe('Persisted note');
+
+      newService.clearMemory();
+    });
+  });
+});

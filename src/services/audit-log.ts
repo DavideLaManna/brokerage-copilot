@@ -695,6 +695,163 @@ export class AuditLogService {
   }
 
   // ===========================================================================
+  // Note Operations
+  // ===========================================================================
+
+  /**
+   * Add a note to an audit log entry
+   */
+  async addNote(
+    accountId: string,
+    entryId: string,
+    text: string
+  ): Promise<StoredAuditLogEntry | null> {
+    const accountEntries = this.entries.get(accountId);
+    if (!accountEntries) {
+      return null;
+    }
+
+    const entryIndex = accountEntries.findIndex((e) => e.id === entryId);
+    if (entryIndex === -1) {
+      return null;
+    }
+
+    const entry = accountEntries[entryIndex]!;
+    const now = new Date().toISOString();
+    const note = {
+      id: randomUUID(),
+      text,
+      addedAt: now,
+    };
+
+    // Add note to entry
+    const updatedEntry: StoredAuditLogEntry = {
+      ...entry,
+      notes: [...(entry.notes ?? []), note],
+    };
+
+    accountEntries[entryIndex] = updatedEntry;
+    this.entries.set(accountId, accountEntries);
+
+    // Persist
+    await this.saveAccountEntries(accountId);
+
+    this.logger.info('Note added to audit entry', {
+      entryId,
+      noteId: note.id,
+      accountId,
+    });
+
+    return updatedEntry;
+  }
+
+  /**
+   * Update a note on an audit log entry
+   */
+  async updateNote(
+    accountId: string,
+    entryId: string,
+    noteId: string,
+    text: string
+  ): Promise<StoredAuditLogEntry | null> {
+    const accountEntries = this.entries.get(accountId);
+    if (!accountEntries) {
+      return null;
+    }
+
+    const entryIndex = accountEntries.findIndex((e) => e.id === entryId);
+    if (entryIndex === -1) {
+      return null;
+    }
+
+    const entry = accountEntries[entryIndex]!;
+    if (!entry.notes) {
+      return null;
+    }
+
+    const noteIndex = entry.notes.findIndex((n) => n.id === noteId);
+    if (noteIndex === -1) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const updatedNotes = [...entry.notes];
+    updatedNotes[noteIndex] = {
+      ...updatedNotes[noteIndex]!,
+      text,
+      updatedAt: now,
+    };
+
+    const updatedEntry: StoredAuditLogEntry = {
+      ...entry,
+      notes: updatedNotes,
+    };
+
+    accountEntries[entryIndex] = updatedEntry;
+    this.entries.set(accountId, accountEntries);
+
+    // Persist
+    await this.saveAccountEntries(accountId);
+
+    this.logger.info('Note updated on audit entry', {
+      entryId,
+      noteId,
+      accountId,
+    });
+
+    return updatedEntry;
+  }
+
+  /**
+   * Delete a note from an audit log entry
+   */
+  async deleteNote(
+    accountId: string,
+    entryId: string,
+    noteId: string
+  ): Promise<StoredAuditLogEntry | null> {
+    const accountEntries = this.entries.get(accountId);
+    if (!accountEntries) {
+      return null;
+    }
+
+    const entryIndex = accountEntries.findIndex((e) => e.id === entryId);
+    if (entryIndex === -1) {
+      return null;
+    }
+
+    const entry = accountEntries[entryIndex]!;
+    if (!entry.notes) {
+      return null;
+    }
+
+    const updatedNotes = entry.notes.filter((n) => n.id !== noteId);
+    if (updatedNotes.length === entry.notes.length) {
+      // Note not found
+      return null;
+    }
+
+    const updatedEntry: StoredAuditLogEntry = {
+      ...entry,
+      notes: updatedNotes.length > 0 ? updatedNotes : undefined,
+    };
+
+    accountEntries[entryIndex] = updatedEntry;
+    this.entries.set(accountId, accountEntries);
+
+    // Persist
+    await this.saveAccountEntries(accountId);
+
+    this.logger.info('Note deleted from audit entry', {
+      entryId,
+      noteId,
+      accountId,
+    });
+
+    return updatedEntry;
+  }
+
+  // ===========================================================================
   // Private Methods
   // ===========================================================================
 

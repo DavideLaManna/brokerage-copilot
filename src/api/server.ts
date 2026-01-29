@@ -22,6 +22,8 @@ import type { TradeProposal } from '../types/trade-proposal.js';
 import { OrderSubmissionService, type BatchSubmissionResult, type OrderSubmissionResult } from '../services/order-submission.js';
 import { OrderSubmissionStore } from '../storage/order-submissions.js';
 import { TradeProposalService } from '../services/trade-proposal.js';
+import { AuditLogService } from '../services/audit-log.js';
+import type { AuditEventType, AuditLogQueryOptions, StoredAuditLogEntry } from '../types/audit-log.js';
 
 /**
  * API response wrapper for consistent response format
@@ -90,14 +92,16 @@ export class ApiServer {
   private connectionService: BrokerConnectionService;
   private submissionStore: OrderSubmissionStore | null = null;
   private proposalService: TradeProposalService | null = null;
+  private auditLogService: AuditLogService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
-  constructor(connectionService: BrokerConnectionService, port: number = 3001, submissionStore?: OrderSubmissionStore, proposalService?: TradeProposalService) {
+  constructor(connectionService: BrokerConnectionService, port: number = 3001, submissionStore?: OrderSubmissionStore, proposalService?: TradeProposalService, auditLogService?: AuditLogService) {
     this.app = express();
     this.connectionService = connectionService;
     this.submissionStore = submissionStore ?? null;
     this.proposalService = proposalService ?? null;
+    this.auditLogService = auditLogService ?? null;
     this.port = port;
 
     this.setupMiddleware();
@@ -117,6 +121,13 @@ export class ApiServer {
    */
   setProposalService(service: TradeProposalService): void {
     this.proposalService = service;
+  }
+
+  /**
+   * Set the audit log service (can be called after construction)
+   */
+  setAuditLogService(service: AuditLogService): void {
+    this.auditLogService = service;
   }
 
   /**
@@ -823,6 +834,222 @@ export class ApiServer {
       }
     });
 
+    // ===========================================================================
+    // Decision Journal Endpoints
+    // ===========================================================================
+
+    // Get journal entries (audit log entries grouped by day)
+    this.app.get('/api/journal/entries', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+
+        // Parse query parameters
+        const queryOptions: AuditLogQueryOptions = {};
+
+        if (req.query.eventTypes) {
+          const typesParam = req.query.eventTypes as string;
+          queryOptions.eventTypes = typesParam.split(',') as AuditEventType[];
+        }
+
+        if (req.query.actor) {
+          queryOptions.actor = req.query.actor as 'user' | 'agent' | 'system' | 'broker';
+        }
+
+        if (req.query.startDate) {
+          queryOptions.startDate = req.query.startDate as string;
+        }
+
+        if (req.query.endDate) {
+          queryOptions.endDate = req.query.endDate as string;
+        }
+
+        if (req.query.limit) {
+          queryOptions.limit = parseInt(req.query.limit as string, 10);
+        }
+
+        if (req.query.offset) {
+          queryOptions.offset = parseInt(req.query.offset as string, 10);
+        }
+
+        queryOptions.sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
+
+        // Get entries grouped by day
+        const groupedEntries = this.auditLogService.getEntriesGroupedByDay(accountId, queryOptions);
+
+        // Convert Map to array of day groups for JSON serialization
+        const dayGroups: Array<{ date: string; entries: StoredAuditLogEntry[] }> = [];
+        for (const [date, entries] of groupedEntries) {
+          dayGroups.push({ date, entries });
+        }
+
+        // Get statistics
+        const statistics = this.auditLogService.getStatistics(accountId);
+
+        res.json(this.wrapResponse({
+          dayGroups,
+          statistics,
+          queryOptions,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get a single journal entry by ID
+    this.app.get('/api/journal/entries/:entryId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+        const entryId = req.params.entryId as string;
+
+        const entry = this.auditLogService.getEntry(accountId, entryId);
+
+        if (!entry) {
+          res.status(404).json(this.wrapResponse(null, 'Entry not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(entry));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get entries for a specific proposal
+    this.app.get('/api/journal/proposals/:proposalId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+        const proposalId = req.params.proposalId as string;
+
+        const entries = this.auditLogService.getProposalHistory(accountId, proposalId);
+
+        res.json(this.wrapResponse({
+          proposalId,
+          entries,
+          count: entries.length,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Add a note to a journal entry
+    this.app.post('/api/journal/entries/:entryId/notes', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+        const entryId = req.params.entryId as string;
+        const { text } = req.body as { text: string };
+
+        if (!text || typeof text !== 'string' || text.trim().length === 0) {
+          res.status(400).json(this.wrapResponse(null, 'Note text is required'));
+          return;
+        }
+
+        const updatedEntry = await this.auditLogService.addNote(accountId, entryId, text.trim());
+
+        if (!updatedEntry) {
+          res.status(404).json(this.wrapResponse(null, 'Entry not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(updatedEntry));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Update a note on a journal entry
+    this.app.put('/api/journal/entries/:entryId/notes/:noteId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+        const entryId = req.params.entryId as string;
+        const noteId = req.params.noteId as string;
+        const { text } = req.body as { text: string };
+
+        if (!text || typeof text !== 'string' || text.trim().length === 0) {
+          res.status(400).json(this.wrapResponse(null, 'Note text is required'));
+          return;
+        }
+
+        const updatedEntry = await this.auditLogService.updateNote(accountId, entryId, noteId, text.trim());
+
+        if (!updatedEntry) {
+          res.status(404).json(this.wrapResponse(null, 'Entry or note not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(updatedEntry));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Delete a note from a journal entry
+    this.app.delete('/api/journal/entries/:entryId/notes/:noteId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+        const entryId = req.params.entryId as string;
+        const noteId = req.params.noteId as string;
+
+        const updatedEntry = await this.auditLogService.deleteNote(accountId, entryId, noteId);
+
+        if (!updatedEntry) {
+          res.status(404).json(this.wrapResponse(null, 'Entry or note not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(updatedEntry));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get journal statistics
+    this.app.get('/api/journal/statistics', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!this.auditLogService) {
+          res.status(503).json(this.wrapResponse(null, 'Audit log service not configured'));
+          return;
+        }
+
+        const accountId = this.currentBrokerType;
+        const statistics = this.auditLogService.getStatistics(accountId);
+
+        res.json(this.wrapResponse(statistics));
+      } catch (error) {
+        next(error);
+      }
+    });
+
     // Refresh all data (alias for portfolio)
     this.app.post('/api/refresh', async (_req: Request, res: Response, next: NextFunction) => {
       try {
@@ -974,7 +1201,8 @@ export function createApiServer(
   connectionService: BrokerConnectionService,
   port?: number,
   submissionStore?: OrderSubmissionStore,
-  proposalService?: TradeProposalService
+  proposalService?: TradeProposalService,
+  auditLogService?: AuditLogService
 ): ApiServer {
-  return new ApiServer(connectionService, port, submissionStore, proposalService);
+  return new ApiServer(connectionService, port, submissionStore, proposalService, auditLogService);
 }

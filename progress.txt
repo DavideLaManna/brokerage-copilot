@@ -1501,3 +1501,62 @@
 - Logs are encrypted per account and stored in .config/audit-logs/
 - The service auto-generates summaries via generateEventSummary() if not provided
 - Next feature to implement is US-027 (Decision journal UI) which will use this audit trail
+
+## 2026-01-29 - US-027: Decision journal UI (COMPLETED)
+
+### What was done:
+- Added user notes support to audit log types (src/types/audit-log.ts)
+  - Created AuditEntryNote interface with id, text, addedAt, updatedAt fields
+  - Updated StoredAuditLogEntry to include optional notes array
+  - Added AuditEntryNoteSchema for Zod validation
+
+- Extended AuditLogService with note operations (src/services/audit-log.ts)
+  - addNote(accountId, entryId, text) - Add a note to an audit entry
+  - updateNote(accountId, entryId, noteId, text) - Update existing note
+  - deleteNote(accountId, entryId, noteId) - Delete a note
+  - Full persistence with AES-256-GCM encryption
+
+- Created 7 Journal API endpoints (src/api/server.ts)
+  - GET /api/journal/entries - Fetch entries grouped by day with filters (eventTypes, actor, startDate, endDate, limit, offset, sortOrder)
+  - GET /api/journal/entries/:entryId - Get single entry by ID
+  - GET /api/journal/proposals/:proposalId - Get entries for a proposal
+  - POST /api/journal/entries/:entryId/notes - Add note to entry
+  - PUT /api/journal/entries/:entryId/notes/:noteId - Update note
+  - DELETE /api/journal/entries/:entryId/notes/:noteId - Delete note
+  - GET /api/journal/statistics - Get journal statistics
+
+- Created DecisionJournal UI component (src/ui/components/DecisionJournal.tsx)
+  - Entries grouped by day with expandable cards
+  - Event detail rendering for all 11 event types
+  - Filter controls: event type chips, date range inputs
+  - Statistics summary panel (total, recommendations, executions, fills)
+  - Note management: add/edit/delete with inline forms
+  - Data sources display for entries
+  - Demo mode with realistic mock data
+  - Responsive design with dark theme
+
+- Created comprehensive type definitions (src/ui/components/DecisionJournal.types.ts)
+  - All audit event types and interfaces
+  - Helper functions: formatEventType, formatActor, getEventTypeColor, formatDate, formatTime, formatCurrency
+
+- Added extensive CSS styles (src/ui/styles/index.css)
+  - Journal layout and responsive grid
+  - Entry cards with expand/collapse animation
+  - Filter chips and date inputs
+  - Notes section with form styling
+  - Risk check result display
+  - Badge variants for confidence/status
+
+- Integrated DecisionJournal into App.tsx dashboard
+- Added 12 comprehensive tests for note operations
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (866 tests total, +12 new)
+- `npm run build:ui` builds successfully
+
+### Notes for next developer:
+- The Decision Journal is now fully functional with audit log integration
+- Next feature to implement is US-028 (Order repricing engine)
+- Consider adding keyboard navigation for journal entries
+- The journal uses the same audit log infrastructure as the rest of the system, so all events are automatically captured

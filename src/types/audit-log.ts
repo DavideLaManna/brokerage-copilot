@@ -334,6 +334,20 @@ export interface ErrorDetails {
 // ============================================================================
 
 /**
+ * User note attached to an audit log entry
+ */
+export interface AuditEntryNote {
+  /** Unique ID for this note */
+  id: string;
+  /** The note text */
+  text: string;
+  /** When the note was added */
+  addedAt: string;
+  /** When the note was last updated */
+  updatedAt?: string;
+}
+
+/**
  * Stored audit log entry with metadata
  */
 export interface StoredAuditLogEntry extends AuditLogEntry {
@@ -341,6 +355,8 @@ export interface StoredAuditLogEntry extends AuditLogEntry {
   createdAt: string;
   /** Version number for schema migrations */
   version: number;
+  /** User-added notes for journal review */
+  notes?: AuditEntryNote[];
 }
 
 // ============================================================================
@@ -576,11 +592,22 @@ export const AuditLogEntrySchema = z.object({
 });
 
 /**
+ * Schema for audit entry note
+ */
+export const AuditEntryNoteSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string().min(1),
+  addedAt: z.string().datetime(),
+  updatedAt: z.string().datetime().optional(),
+});
+
+/**
  * Schema for stored audit log entry
  */
 export const StoredAuditLogEntrySchema = AuditLogEntrySchema.extend({
   createdAt: z.string().datetime(),
   version: z.number().int().positive(),
+  notes: z.array(AuditEntryNoteSchema).optional(),
 });
 
 // ============================================================================

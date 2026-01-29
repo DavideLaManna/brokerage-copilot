@@ -8,6 +8,7 @@ import {
   ChatPanel,
   OrderApprovalModal,
   ExecutionResultModal,
+  DecisionJournal,
   type OrderApprovalData,
 } from './components';
 import {
@@ -761,6 +762,10 @@ export default function App(): React.ReactElement {
         />
 
         <ChatPanel
+          demoMode={DEMO_MODE}
+        />
+
+        <DecisionJournal
           demoMode={DEMO_MODE}
         />
       </div>

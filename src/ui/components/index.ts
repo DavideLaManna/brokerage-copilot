@@ -7,6 +7,7 @@ export { default as GreeksPanel } from './GreeksPanel';
 export { default as ChatPanel } from './ChatPanel';
 export { default as OrderApprovalModal } from './OrderApprovalModal';
 export { default as ExecutionResultModal } from './ExecutionResultModal';
+export { default as DecisionJournal } from './DecisionJournal';
 export type {
   OrderApprovalData,
   OrderApprovalModalProps,
@@ -19,3 +20,11 @@ export type {
   ConfidenceLevel,
 } from './OrderApprovalModal';
 export type { ExecutionResultModalProps } from './ExecutionResultModal';
+export type {
+  DecisionJournalProps,
+  StoredAuditLogEntry,
+  DayGroup,
+  JournalStatistics,
+  JournalQueryOptions,
+  AuditEventType,
+} from './DecisionJournal.types';
