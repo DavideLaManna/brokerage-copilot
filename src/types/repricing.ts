@@ -31,6 +31,10 @@ export interface RepricingConfig {
   maxOrdersPerScan: number;
   /** Minimum mid price to consider (avoids penny stocks, default: 0.01) */
   minMidPrice: number;
+  /** Whether automatic repricing is enabled (default: false) */
+  autoRepriceEnabled: boolean;
+  /** Band percentage for automatic repricing (default: 2%) - orders within this band are auto-repriced without approval */
+  autoRepriceBandPercent: number;
 }
 
 /**
@@ -44,6 +48,8 @@ export const RepricingConfigSchema = z.object({
   includeEquities: z.boolean(),
   maxOrdersPerScan: z.number().int().positive(),
   minMidPrice: z.number().nonnegative(),
+  autoRepriceEnabled: z.boolean(),
+  autoRepriceBandPercent: z.number().positive().max(100),
 });
 
 /**
@@ -57,6 +63,8 @@ export const DEFAULT_REPRICING_CONFIG: RepricingConfig = {
   includeEquities: true,
   maxOrdersPerScan: 50,
   minMidPrice: 0.01,
+  autoRepriceEnabled: false, // Disabled by default for safety
+  autoRepriceBandPercent: 2, // 2% band for auto-repricing
 };
 
 // ============================================================================
@@ -73,6 +81,11 @@ export type RepricingProposalStatus =
   | 'executed' // Successfully modified the order
   | 'failed' // Modification attempt failed
   | 'expired'; // Order was filled/canceled before modification
+
+/**
+ * Source of a repricing action - used for audit trail tagging
+ */
+export type RepricingSource = 'manual' | 'auto_housekeeping';
 
 /**
  * A proposal to reprice an existing limit order
@@ -130,6 +143,10 @@ export interface RepricingProposal {
   newOrderId?: string;
   /** Error message (if failed) */
   errorMessage?: string;
+  /** Source of the repricing action */
+  source: RepricingSource;
+  /** Whether this was auto-executed (no user approval required) */
+  autoExecuted?: boolean;
 }
 
 /**
@@ -158,6 +175,8 @@ export const RepricingProposalSchema = z.object({
     'failed',
     'expired',
   ]),
+  source: z.enum(['manual', 'auto_housekeeping']),
+  autoExecuted: z.boolean().optional(),
   quantity: z.number().int().positive(),
   timeInForce: z.enum(['day', 'gtc', 'ioc', 'fok']),
   orderSubmittedAt: z.date(),
@@ -219,6 +238,85 @@ export interface OrderModificationResult {
   errorCode?: string;
   /** Timestamp of the result */
   timestamp: Date;
+}
+
+// ============================================================================
+// Auto-Reprice Types
+// ============================================================================
+
+/**
+ * Result of an automatic repricing operation
+ */
+export interface AutoRepriceResult {
+  /** Unique ID for this auto-reprice operation */
+  id: string;
+  /** Timestamp of the operation */
+  timestamp: Date;
+  /** Orders that were automatically repriced */
+  repriced: Array<{
+    orderId: string;
+    symbol: string;
+    previousPrice: number;
+    newPrice: number;
+    newOrderId?: string;
+    success: boolean;
+    errorMessage?: string;
+  }>;
+  /** Orders that were skipped (outside auto-reprice band or validation failed) */
+  skipped: Array<{
+    orderId: string;
+    symbol: string;
+    reason: string;
+  }>;
+  /** Total orders scanned */
+  ordersScanned: number;
+  /** Orders successfully repriced */
+  successCount: number;
+  /** Orders that failed repricing */
+  failedCount: number;
+  /** Whether auto-repricing is still enabled after this scan */
+  autoRepriceStillEnabled: boolean;
+  /** Reason if auto-reprice was disabled */
+  disabledReason?: string;
+}
+
+/**
+ * Notification for auto-reprice activity
+ */
+export interface AutoRepriceNotification {
+  /** Unique ID */
+  id: string;
+  /** Type of notification */
+  type: 'success' | 'warning' | 'error' | 'info';
+  /** Short title */
+  title: string;
+  /** Detailed message */
+  message: string;
+  /** Related order IDs */
+  orderIds: string[];
+  /** Related symbols */
+  symbols: string[];
+  /** Timestamp */
+  timestamp: Date;
+  /** Whether this has been dismissed */
+  dismissed: boolean;
+  /** Auto-reprice result if applicable */
+  result?: AutoRepriceResult;
+}
+
+/**
+ * Check if an order qualifies for auto-repricing (within the safe band)
+ * Auto-repricing is more conservative than manual repricing proposals
+ */
+export function orderQualifiesForAutoReprice(
+  deviationPercent: number,
+  proposedDeviationPercent: number,
+  autoRepriceBandPercent: number
+): boolean {
+  // Order must be outside the band to trigger repricing
+  // AND the proposed price must be within the auto-reprice band
+  // This ensures we only auto-reprice to "safe" prices
+  return Math.abs(proposedDeviationPercent) <= autoRepriceBandPercent;
 }
 
 // ============================================================================
@@ -450,6 +548,19 @@ export function validateRepricingConfig(config: unknown): {
   }
   if (cfg.minOrderAgeSeconds < 60) {
     warnings.push('Very low minimum order age may reprice orders prematurely');
+  }
+
+  // Auto-reprice specific warnings
+  if (cfg.autoRepriceEnabled) {
+    if (cfg.autoRepriceBandPercent > 5) {
+      warnings.push('Large auto-reprice band (>5%) may result in significant price changes without approval');
+    }
+    if (cfg.autoRepriceBandPercent > cfg.repriceBandPercent) {
+      warnings.push('Auto-reprice band is larger than manual reprice band - auto-reprice will be less restrictive');
+    }
+    if (cfg.minOrderAgeSeconds < 120) {
+      warnings.push('Very low minimum order age with auto-reprice enabled may modify orders too quickly');
+    }
   }
 
   return { valid: true, errors, warnings };

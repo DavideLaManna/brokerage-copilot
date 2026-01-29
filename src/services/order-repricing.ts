@@ -20,6 +20,7 @@ import {
   calculateDeviationPercent,
   calculateProposedPrice,
   orderQualifiesForRepricing,
+  orderQualifiesForAutoReprice,
   generateRepricingRationale,
   DEFAULT_REPRICING_CONFIG,
   REPRICING_SCHEMA_VERSION,
@@ -29,6 +30,9 @@ import {
   type RepricingScanResult,
   type StoredRepricingProposal,
   type OrderModificationResult,
+  type AutoRepriceResult,
+  type AutoRepriceNotification,
+  type RepricingSource,
 } from '../types/repricing.js';
 
 // ============================================================================
@@ -76,6 +80,12 @@ export class OrderRepricingService {
 
   // In-memory storage for proposals (per session)
   private proposals: Map<string, StoredRepricingProposal> = new Map();
+
+  // Notifications for UI display
+  private notifications: AutoRepriceNotification[] = [];
+
+  // Track if auto-reprice has been disabled due to errors
+  private autoRepriceDisabledReason?: string;
 
   constructor(
     adapter: BrokerAdapter,
@@ -218,12 +228,14 @@ export class OrderRepricingService {
    * @param order - Order to reprice
    * @param quote - Current market quote
    * @param now - Current timestamp
+   * @param source - Source of the repricing (manual or auto)
    * @returns Generated repricing proposal
    */
   generateProposal(
     order: Order,
     quote: Quote,
-    now: Date = new Date()
+    now: Date = new Date(),
+    source: RepricingSource = 'manual'
   ): RepricingProposal {
     const deviationPercent = calculateDeviationPercent(
       order.limitPrice!,
@@ -277,6 +289,7 @@ export class OrderRepricingService {
       orderSubmittedAt: order.submittedAt,
       createdAt: now,
       updatedAt: now,
+      source,
     };
 
     this.logger?.info?.('Generated repricing proposal', {
@@ -486,12 +499,331 @@ export class OrderRepricingService {
     }
 
     const now = new Date();
+    const result = await this.executeProposalInternal(proposal);
+
+    if (result.success) {
+      // Update proposal status
+      proposal.status = 'executed';
+      proposal.executedAt = now;
+      proposal.newOrderId = result.newOrderId;
+      proposal.updatedAt = now;
+
+      this.logger?.info?.('Repricing executed successfully', {
+        proposalId,
+        originalOrderId: proposal.orderId,
+        newOrderId: result.newOrderId,
+        newLimitPrice: proposal.proposedLimitPrice,
+        source: proposal.source,
+      });
+
+      // Log to audit trail if available
+      if (this.auditLogService) {
+        const prefix = proposal.source === 'auto_housekeeping' ? '[AUTO-HOUSEKEEPING] ' : '';
+        await this.auditLogService.log({
+          accountId: this.accountId,
+          eventType: 'modification',
+          actor: proposal.source === 'auto_housekeeping' ? 'system' : 'user',
+          orderId: result.newOrderId!,
+          details: {
+            type: 'modification',
+            symbol: proposal.symbol,
+            brokerOrderId: proposal.orderId,
+            modificationType: 'price',
+            previousValue: proposal.currentLimitPrice,
+            newValue: proposal.proposedLimitPrice,
+            success: true,
+          },
+          summary: `${prefix}Repriced ${proposal.symbol} from $${proposal.currentLimitPrice.toFixed(2)} to $${proposal.proposedLimitPrice.toFixed(2)}`,
+        });
+      }
+    } else {
+      proposal.status = 'failed';
+      proposal.errorMessage = result.errorMessage;
+      proposal.updatedAt = now;
+
+      // Log failure to audit trail if available
+      if (this.auditLogService) {
+        const prefix = proposal.source === 'auto_housekeeping' ? '[AUTO-HOUSEKEEPING] ' : '';
+        await this.auditLogService.log({
+          accountId: this.accountId,
+          eventType: 'modification',
+          actor: proposal.source === 'auto_housekeeping' ? 'system' : 'user',
+          orderId: proposal.orderId,
+          details: {
+            type: 'modification',
+            symbol: proposal.symbol,
+            brokerOrderId: proposal.orderId,
+            modificationType: 'price',
+            previousValue: proposal.currentLimitPrice,
+            newValue: proposal.proposedLimitPrice,
+            success: false,
+            errorMessage: result.errorMessage,
+          },
+          summary: `${prefix}Failed to reprice ${proposal.symbol}: ${result.errorMessage}`,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Update the repricing configuration
+   *
+   * @param config - Partial config to update
+   */
+  updateConfig(config: Partial<RepricingConfig>): void {
+    this.config = { ...this.config, ...config };
+    this.logger?.info?.('Repricing config updated', { config: this.config });
+  }
+
+  /**
+   * Get the current configuration
+   */
+  getConfig(): RepricingConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Clear all stored proposals
+   */
+  clearProposals(): void {
+    this.proposals.clear();
+    this.logger?.info?.('All proposals cleared');
+  }
+
+  /**
+   * Run automatic repricing scan
+   *
+   * If autoRepriceEnabled is true, this will:
+   * 1. Scan open orders for repricing opportunities
+   * 2. For orders within the autoRepriceBandPercent, automatically execute repricing
+   * 3. For orders outside the band, generate proposals for manual review
+   * 4. Disable auto-reprice if any validation fails
+   *
+   * @returns Auto-reprice result with success/failure details
+   */
+  async runAutoReprice(): Promise<AutoRepriceResult> {
+    const resultId = randomUUID();
+    const now = new Date();
+
+    // Check if auto-reprice is enabled
+    if (!this.config.autoRepriceEnabled) {
+      return {
+        id: resultId,
+        timestamp: now,
+        repriced: [],
+        skipped: [],
+        ordersScanned: 0,
+        successCount: 0,
+        failedCount: 0,
+        autoRepriceStillEnabled: false,
+        disabledReason: 'Auto-reprice is disabled in config',
+      };
+    }
+
+    // Check if auto-reprice was previously disabled due to errors
+    if (this.autoRepriceDisabledReason) {
+      return {
+        id: resultId,
+        timestamp: now,
+        repriced: [],
+        skipped: [],
+        ordersScanned: 0,
+        successCount: 0,
+        failedCount: 0,
+        autoRepriceStillEnabled: false,
+        disabledReason: this.autoRepriceDisabledReason,
+      };
+    }
+
+    this.logger?.info?.('Starting auto-reprice scan', {
+      accountId: this.accountId,
+      autoRepriceBandPercent: this.config.autoRepriceBandPercent,
+    });
+
+    const orders = await this.adapter.getOpenOrders();
+    const ordersToScan = orders.slice(0, this.config.maxOrdersPerScan);
+
+    const repriced: AutoRepriceResult['repriced'] = [];
+    const skipped: AutoRepriceResult['skipped'] = [];
+    let successCount = 0;
+    let failedCount = 0;
+    let shouldDisableAutoReprice = false;
+    let disableReason: string | undefined;
+
+    for (const order of ordersToScan) {
+      try {
+        // Get quote for this order
+        const quote = await this.marketDataService.getQuote(order.symbol);
+        const orderAgeSeconds = Math.floor(
+          (now.getTime() - order.submittedAt.getTime()) / 1000
+        );
+
+        // Check if order qualifies for any repricing
+        const qualification = orderQualifiesForRepricing(
+          order,
+          quote.mid,
+          this.config,
+          orderAgeSeconds
+        );
+
+        if (!qualification.qualifies) {
+          skipped.push({
+            orderId: order.id,
+            symbol: order.symbol,
+            reason: qualification.reason || 'Does not qualify for repricing',
+          });
+          continue;
+        }
+
+        // Calculate proposed price
+        const proposedPrice = calculateProposedPrice(
+          order.side,
+          quote.mid,
+          this.config.repriceBandPercent
+        );
+        const roundedProposedPrice = Math.round(proposedPrice * 100) / 100;
+
+        // Calculate the deviation of the proposed price from mid
+        const proposedDeviationPercent = Math.abs(
+          calculateDeviationPercent(roundedProposedPrice, quote.mid)
+        );
+        const currentDeviationPercent = Math.abs(
+          calculateDeviationPercent(order.limitPrice!, quote.mid)
+        );
+
+        // Check if this qualifies for AUTO repricing (more conservative)
+        const qualifiesForAuto = orderQualifiesForAutoReprice(
+          currentDeviationPercent,
+          proposedDeviationPercent,
+          this.config.autoRepriceBandPercent
+        );
+
+        if (!qualifiesForAuto) {
+          // Generate a manual proposal instead
+          const proposal = this.generateProposal(order, quote, now, 'manual');
+          this.storeProposal(proposal);
+          skipped.push({
+            orderId: order.id,
+            symbol: order.symbol,
+            reason: `Proposed price ${proposedDeviationPercent.toFixed(1)}% from mid exceeds auto-reprice band ${this.config.autoRepriceBandPercent}%`,
+          });
+          continue;
+        }
+
+        // Generate auto-reprice proposal
+        const proposal = this.generateProposal(order, quote, now, 'auto_housekeeping');
+        proposal.autoExecuted = true;
+        this.storeProposal(proposal);
+
+        // Get stored proposal (which has version)
+        const storedProposal = this.proposals.get(proposal.id)!;
+
+        // Auto-approve and execute
+        storedProposal.status = 'approved';
+        storedProposal.approvedAt = now;
+        storedProposal.updatedAt = now;
+
+        const result = await this.executeProposalInternal(storedProposal);
+
+        if (result.success) {
+          storedProposal.status = 'executed';
+          storedProposal.executedAt = new Date();
+          storedProposal.newOrderId = result.newOrderId;
+          successCount++;
+          repriced.push({
+            orderId: order.id,
+            symbol: order.symbol,
+            previousPrice: order.limitPrice!,
+            newPrice: roundedProposedPrice,
+            newOrderId: result.newOrderId,
+            success: true,
+          });
+
+          // Log auto-reprice to audit trail
+          await this.logAutoRepriceAction(storedProposal, result, 'auto_housekeeping');
+        } else {
+          storedProposal.status = 'failed';
+          storedProposal.errorMessage = result.errorMessage;
+          failedCount++;
+          repriced.push({
+            orderId: order.id,
+            symbol: order.symbol,
+            previousPrice: order.limitPrice!,
+            newPrice: roundedProposedPrice,
+            success: false,
+            errorMessage: result.errorMessage,
+          });
+
+          // Check if we should disable auto-reprice due to failures
+          if (this.shouldDisableAutoRepriceOnError(result.errorMessage)) {
+            shouldDisableAutoReprice = true;
+            disableReason = `Auto-reprice disabled: ${result.errorMessage}`;
+          }
+        }
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        skipped.push({
+          orderId: order.id,
+          symbol: order.symbol,
+          reason: `Error: ${errorMessage}`,
+        });
+
+        // Check if this error should disable auto-reprice
+        if (this.shouldDisableAutoRepriceOnError(errorMessage)) {
+          shouldDisableAutoReprice = true;
+          disableReason = `Auto-reprice disabled: ${errorMessage}`;
+        }
+      }
+    }
+
+    // Disable auto-reprice if needed
+    if (shouldDisableAutoReprice && disableReason) {
+      this.disableAutoReprice(disableReason);
+    }
+
+    const result: AutoRepriceResult = {
+      id: resultId,
+      timestamp: now,
+      repriced,
+      skipped,
+      ordersScanned: ordersToScan.length,
+      successCount,
+      failedCount,
+      autoRepriceStillEnabled: !shouldDisableAutoReprice && this.config.autoRepriceEnabled,
+      disabledReason: shouldDisableAutoReprice ? disableReason : undefined,
+    };
+
+    // Generate notification for UI
+    this.generateAutoRepriceNotification(result);
+
+    this.logger?.info?.('Auto-reprice scan complete', {
+      ordersScanned: result.ordersScanned,
+      successCount,
+      failedCount,
+      skippedCount: skipped.length,
+      autoRepriceStillEnabled: result.autoRepriceStillEnabled,
+    });
+
+    return result;
+  }
+
+  /**
+   * Internal method to execute a proposal (used by both manual and auto execution)
+   */
+  private async executeProposalInternal(
+    proposal: StoredRepricingProposal
+  ): Promise<OrderModificationResult> {
+    const now = new Date();
 
     try {
       // Step 1: Cancel the original order
       this.logger?.info?.('Canceling original order for repricing', {
         orderId: proposal.orderId,
         symbol: proposal.symbol,
+        source: proposal.source,
       });
 
       const cancelSuccess = await this.adapter.cancelOrder(proposal.orderId);
@@ -503,6 +835,7 @@ export class OrderRepricingService {
       this.logger?.info?.('Placing new order with updated price', {
         symbol: proposal.symbol,
         newLimitPrice: proposal.proposedLimitPrice,
+        source: proposal.source,
       });
 
       // Get the original order details
@@ -530,39 +863,6 @@ export class OrderRepricingService {
         randomUUID()
       );
 
-      // Update proposal status
-      proposal.status = 'executed';
-      proposal.executedAt = now;
-      proposal.newOrderId = newOrder.id;
-      proposal.updatedAt = now;
-
-      this.logger?.info?.('Repricing executed successfully', {
-        proposalId,
-        originalOrderId: proposal.orderId,
-        newOrderId: newOrder.id,
-        newLimitPrice: proposal.proposedLimitPrice,
-      });
-
-      // Log to audit trail if available
-      if (this.auditLogService) {
-        await this.auditLogService.log({
-          accountId: this.accountId,
-          eventType: 'modification',
-          actor: 'system',
-          orderId: newOrder.id,
-          details: {
-            type: 'modification',
-            symbol: proposal.symbol,
-            brokerOrderId: proposal.orderId,
-            modificationType: 'price',
-            previousValue: proposal.currentLimitPrice,
-            newValue: proposal.proposedLimitPrice,
-            success: true,
-          },
-          summary: `Repriced ${proposal.symbol} from $${proposal.currentLimitPrice.toFixed(2)} to $${proposal.proposedLimitPrice.toFixed(2)}`,
-        });
-      }
-
       return {
         success: true,
         originalOrderId: proposal.orderId,
@@ -575,36 +875,12 @@ export class OrderRepricingService {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
 
-      proposal.status = 'failed';
-      proposal.errorMessage = errorMessage;
-      proposal.updatedAt = now;
-
       this.logger?.error?.('Failed to execute repricing', {
-        proposalId,
+        proposalId: proposal.id,
         orderId: proposal.orderId,
+        source: proposal.source,
         error: errorMessage,
       });
-
-      // Log failure to audit trail if available
-      if (this.auditLogService) {
-        await this.auditLogService.log({
-          accountId: this.accountId,
-          eventType: 'modification',
-          actor: 'system',
-          orderId: proposal.orderId,
-          details: {
-            type: 'modification',
-            symbol: proposal.symbol,
-            brokerOrderId: proposal.orderId,
-            modificationType: 'price',
-            previousValue: proposal.currentLimitPrice,
-            newValue: proposal.proposedLimitPrice,
-            success: false,
-            errorMessage,
-          },
-          summary: `Failed to reprice ${proposal.symbol}: ${errorMessage}`,
-        });
-      }
 
       return {
         success: false,
@@ -618,28 +894,256 @@ export class OrderRepricingService {
   }
 
   /**
-   * Update the repricing configuration
-   *
-   * @param config - Partial config to update
+   * Log an auto-reprice action to the audit trail
    */
-  updateConfig(config: Partial<RepricingConfig>): void {
-    this.config = { ...this.config, ...config };
-    this.logger?.info?.('Repricing config updated', { config: this.config });
+  private async logAutoRepriceAction(
+    proposal: RepricingProposal,
+    result: OrderModificationResult,
+    source: RepricingSource
+  ): Promise<void> {
+    if (!this.auditLogService) return;
+
+    await this.auditLogService.log({
+      accountId: this.accountId,
+      eventType: 'modification',
+      actor: 'system',
+      orderId: result.newOrderId || proposal.orderId,
+      details: {
+        type: 'modification',
+        symbol: proposal.symbol,
+        brokerOrderId: proposal.orderId,
+        modificationType: 'price',
+        previousValue: proposal.currentLimitPrice,
+        newValue: proposal.proposedLimitPrice,
+        success: result.success,
+        errorMessage: result.errorMessage,
+      },
+      summary: `[AUTO-HOUSEKEEPING] ${result.success ? 'Repriced' : 'Failed to reprice'} ${proposal.symbol} from $${proposal.currentLimitPrice.toFixed(2)} to $${proposal.proposedLimitPrice.toFixed(2)}`,
+    });
   }
 
   /**
-   * Get the current configuration
+   * Check if an error should disable auto-reprice
    */
-  getConfig(): RepricingConfig {
-    return { ...this.config };
+  private shouldDisableAutoRepriceOnError(errorMessage?: string): boolean {
+    if (!errorMessage) return false;
+
+    // Errors that should disable auto-reprice for safety
+    const disableOnErrors = [
+      'authentication',
+      'unauthorized',
+      'rate limit',
+      'insufficient',
+      'buying power',
+      'margin',
+      'account restricted',
+      'account blocked',
+      'permission denied',
+    ];
+
+    const lowerError = errorMessage.toLowerCase();
+    return disableOnErrors.some((pattern) => lowerError.includes(pattern));
   }
 
   /**
-   * Clear all stored proposals
+   * Disable auto-reprice and record the reason
    */
-  clearProposals(): void {
-    this.proposals.clear();
-    this.logger?.info?.('All proposals cleared');
+  disableAutoReprice(reason: string): void {
+    this.config.autoRepriceEnabled = false;
+    this.autoRepriceDisabledReason = reason;
+    this.logger?.warn?.('Auto-reprice disabled', { reason });
+
+    // Log config change to audit trail
+    if (this.auditLogService) {
+      this.auditLogService.log({
+        accountId: this.accountId,
+        eventType: 'config_change',
+        actor: 'system',
+        details: {
+          type: 'config_change',
+          configType: 'auto_reprice',
+          field: 'autoRepriceEnabled',
+          previousValue: true,
+          newValue: false,
+        },
+        summary: `[AUTO-HOUSEKEEPING] Auto-reprice disabled: ${reason}`,
+      }).catch((err) => {
+        this.logger?.error?.('Failed to log auto-reprice disable', { error: err });
+      });
+    }
+
+    // Generate notification
+    this.addNotification({
+      id: randomUUID(),
+      type: 'warning',
+      title: 'Auto-Reprice Disabled',
+      message: reason,
+      orderIds: [],
+      symbols: [],
+      timestamp: new Date(),
+      dismissed: false,
+    });
+  }
+
+  /**
+   * Re-enable auto-reprice after it was disabled
+   */
+  enableAutoReprice(): void {
+    if (this.config.autoRepriceEnabled && !this.autoRepriceDisabledReason) {
+      return; // Already enabled
+    }
+
+    this.config.autoRepriceEnabled = true;
+    this.autoRepriceDisabledReason = undefined;
+    this.logger?.info?.('Auto-reprice re-enabled');
+
+    // Log config change to audit trail
+    if (this.auditLogService) {
+      this.auditLogService.log({
+        accountId: this.accountId,
+        eventType: 'config_change',
+        actor: 'user',
+        details: {
+          type: 'config_change',
+          configType: 'auto_reprice',
+          field: 'autoRepriceEnabled',
+          previousValue: false,
+          newValue: true,
+        },
+        summary: 'Auto-reprice re-enabled by user',
+      }).catch((err) => {
+        this.logger?.error?.('Failed to log auto-reprice enable', { error: err });
+      });
+    }
+
+    // Generate notification
+    this.addNotification({
+      id: randomUUID(),
+      type: 'info',
+      title: 'Auto-Reprice Enabled',
+      message: 'Automatic repricing is now active',
+      orderIds: [],
+      symbols: [],
+      timestamp: new Date(),
+      dismissed: false,
+    });
+  }
+
+  /**
+   * Check if auto-reprice is currently available
+   */
+  isAutoRepriceAvailable(): { available: boolean; reason?: string } {
+    // Check disabled reason first - this provides more context than just "disabled in config"
+    if (this.autoRepriceDisabledReason) {
+      return { available: false, reason: this.autoRepriceDisabledReason };
+    }
+    if (!this.config.autoRepriceEnabled) {
+      return { available: false, reason: 'Auto-reprice is disabled in config' };
+    }
+    return { available: true };
+  }
+
+  /**
+   * Generate notification from auto-reprice result
+   */
+  private generateAutoRepriceNotification(result: AutoRepriceResult): void {
+    if (result.repriced.length === 0 && result.skipped.length === 0) {
+      return; // No activity to notify about
+    }
+
+    const symbols = [...new Set(result.repriced.map((r) => r.symbol))];
+    const orderIds = result.repriced.map((r) => r.orderId);
+
+    let type: AutoRepriceNotification['type'];
+    let title: string;
+    let message: string;
+
+    if (result.failedCount > 0 && result.successCount === 0) {
+      type = 'error';
+      title = 'Auto-Reprice Failed';
+      message = `Failed to reprice ${result.failedCount} order(s)`;
+    } else if (result.failedCount > 0) {
+      type = 'warning';
+      title = 'Auto-Reprice Partial Success';
+      message = `Repriced ${result.successCount} order(s), ${result.failedCount} failed`;
+    } else if (result.successCount > 0) {
+      type = 'success';
+      title = 'Auto-Reprice Complete';
+      message = `Successfully repriced ${result.successCount} order(s)`;
+    } else {
+      type = 'info';
+      title = 'Auto-Reprice Scan';
+      message = `Scanned ${result.ordersScanned} orders, ${result.skipped.length} skipped`;
+    }
+
+    if (!result.autoRepriceStillEnabled && result.disabledReason) {
+      message += `. Auto-reprice disabled: ${result.disabledReason}`;
+      type = 'warning';
+    }
+
+    this.addNotification({
+      id: randomUUID(),
+      type,
+      title,
+      message,
+      orderIds,
+      symbols,
+      timestamp: result.timestamp,
+      dismissed: false,
+      result,
+    });
+  }
+
+  /**
+   * Add a notification
+   */
+  private addNotification(notification: AutoRepriceNotification): void {
+    this.notifications.push(notification);
+
+    // Keep only the last 50 notifications
+    if (this.notifications.length > 50) {
+      this.notifications = this.notifications.slice(-50);
+    }
+  }
+
+  /**
+   * Get all notifications
+   */
+  getNotifications(): AutoRepriceNotification[] {
+    return [...this.notifications];
+  }
+
+  /**
+   * Get undismissed notifications
+   */
+  getActiveNotifications(): AutoRepriceNotification[] {
+    return this.notifications.filter((n) => !n.dismissed);
+  }
+
+  /**
+   * Dismiss a notification
+   */
+  dismissNotification(notificationId: string): boolean {
+    const notification = this.notifications.find((n) => n.id === notificationId);
+    if (notification) {
+      notification.dismissed = true;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Dismiss all notifications
+   */
+  dismissAllNotifications(): void {
+    this.notifications.forEach((n) => (n.dismissed = true));
+  }
+
+  /**
+   * Clear all notifications
+   */
+  clearNotifications(): void {
+    this.notifications = [];
   }
 
   /**
@@ -708,13 +1212,15 @@ export function createOrderRepricingService(
  * @param quote - Current market quote
  * @param config - Repricing configuration
  * @param accountId - Account ID
+ * @param source - Source of the repricing (manual or auto)
  * @returns Repricing proposal if order qualifies, null otherwise
  */
 export function evaluateOrderForRepricing(
   order: Order,
   quote: Quote,
   config: RepricingConfig = DEFAULT_REPRICING_CONFIG,
-  accountId: string = 'default'
+  accountId: string = 'default',
+  source: RepricingSource = 'manual'
 ): RepricingProposal | null {
   const now = new Date();
   const orderAgeSeconds = Math.floor(
@@ -782,5 +1288,6 @@ export function evaluateOrderForRepricing(
     orderSubmittedAt: order.submittedAt,
     createdAt: now,
     updatedAt: now,
+    source,
   };
 }

@@ -8,6 +8,7 @@ export { default as ChatPanel } from './ChatPanel';
 export { default as OrderApprovalModal } from './OrderApprovalModal';
 export { default as ExecutionResultModal } from './ExecutionResultModal';
 export { default as DecisionJournal } from './DecisionJournal';
+export { default as AutoRepriceNotifications } from './AutoRepriceNotifications';
 export type {
   OrderApprovalData,
   OrderApprovalModalProps,
@@ -28,3 +29,8 @@ export type {
   JournalQueryOptions,
   AuditEventType,
 } from './DecisionJournal.types';
+export type {
+  AutoRepriceNotificationsProps,
+  AutoRepriceNotificationData,
+  AutoRepriceStatus,
+} from './AutoRepriceNotifications';

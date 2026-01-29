@@ -1611,3 +1611,72 @@
 - The minOrderAgeSeconds config (default 5 minutes) prevents repricing orders that were just placed
 - Audit trail integration logs all approval/rejection/execution events for compliance
 
+
+## 2026-01-29 - US-029: Auto-reprice approval setting (COMPLETED)
+
+### What was done:
+- Extended RepricingConfig in src/types/repricing.ts with:
+  - autoRepriceEnabled (boolean, default false)
+  - autoRepriceBandPercent (number, default 2%)
+- Added RepricingSource type ('manual' | 'auto_housekeeping') for tracking repricing origin
+- Added source and autoExecuted fields to RepricingProposal interface
+- Created AutoRepriceResult type for tracking auto-reprice operation results
+- Created AutoRepriceNotification type for UI notification display
+- Added orderQualifiesForAutoReprice() helper function
+- Implemented runAutoReprice() in OrderRepricingService:
+  - Scans open orders for repricing opportunities
+  - Auto-executes repricing for orders within autoRepriceBandPercent without user approval
+  - Generates manual proposals for orders outside the safe band
+  - Tracks success/failure counts
+  - Auto-disables on critical errors
+- All auto-reprice actions logged with [AUTO-HOUSEKEEPING] prefix in audit trail
+- Added logAutoRepriceAction() for consistent audit logging of auto operations
+- Implemented disableAutoReprice(reason) that:
+  - Sets autoRepriceEnabled to false
+  - Stores the disable reason
+  - Logs config_change event to audit trail
+  - Creates warning notification for UI
+- Implemented enableAutoReprice() for manual re-enabling after issue resolution
+- Added isAutoRepriceAvailable() to check current auto-reprice status with reason
+- Created notification management system:
+  - addNotification(), getNotifications(), getActiveNotifications()
+  - dismissNotification(id), dismissAllNotifications(), clearNotifications()
+  - Auto-generates notifications from auto-reprice results
+- Created AutoRepriceNotifications.tsx UI component:
+  - Status header with enabled/disabled state and band percentage display
+  - Enable/Disable toggle buttons
+  - Disabled reason warning banner
+  - Last scan timestamp
+  - Notification list with expandable details for each auto-reprice event
+  - Dismiss individual or all notifications
+  - Comprehensive CSS styling for all states
+- Extended validateRepricingConfig() to warn about aggressive auto-reprice settings:
+  - Large auto-reprice band (>5%)
+  - Auto-reprice band larger than manual band
+  - Low order age with auto-reprice enabled
+- Auto-disable triggers on critical errors: authentication, rate limit, insufficient buying power, margin, account restricted/blocked, permission denied
+
+### Files created:
+- src/ui/components/AutoRepriceNotifications.tsx
+
+### Files modified:
+- src/types/repricing.ts (added auto-reprice config, types, helpers)
+- src/services/order-repricing.ts (added runAutoReprice(), notification system, enable/disable methods)
+- src/services/order-repricing.test.ts (added 28 tests for auto-reprice functionality)
+- src/ui/components/index.ts (exported new component)
+- src/ui/styles/index.css (added auto-reprice notification styles)
+- prd.json (marked US-029 as complete)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (958 tests total, 28 new tests for auto-reprice)
+
+### Notes for next developer:
+- Auto-reprice is disabled by default (autoRepriceEnabled: false) for safety
+- The autoRepriceBandPercent (default 2%) defines the safe band for automatic repricing
+- Orders outside the band still get manual repricing proposals generated
+- The system auto-disables on authentication, rate limit, or buying power errors
+- Users can re-enable via enableAutoReprice() after resolving issues
+- The UI component AutoRepriceNotifications can be integrated into the dashboard to display auto-reprice activity
+- All auto-reprice actions are clearly tagged with [AUTO-HOUSEKEEPING] in the audit log for compliance tracking
+- Next user story to implement: US-030 (Exit ladder builder)

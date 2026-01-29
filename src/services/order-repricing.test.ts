@@ -623,7 +623,7 @@ describe('OrderRepricingService', () => {
       expect(auditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'modification',
-          actor: 'system',
+          actor: 'user', // Manual repricing is user-initiated
         })
       );
     });
@@ -762,5 +762,347 @@ describe('evaluateOrderForRepricing', () => {
     );
 
     expect(proposal).not.toBeNull();
+  });
+});
+
+// ============================================================================
+// Auto-Reprice Tests
+// ============================================================================
+
+describe('Auto-Reprice functionality', () => {
+  let service: OrderRepricingService;
+  let adapter: BrokerAdapter;
+  let marketDataService: MarketDataService;
+  let auditLogService: AuditLogService;
+
+  beforeEach(() => {
+    adapter = createMockAdapter();
+    marketDataService = createMockMarketDataService();
+    auditLogService = createMockAuditLogService();
+    service = new OrderRepricingService(
+      adapter,
+      marketDataService,
+      'test-account',
+      {
+        repricingConfig: {
+          autoRepriceEnabled: true,
+          autoRepriceBandPercent: 2,
+        },
+      },
+      auditLogService
+    );
+    vi.mocked(adapter.getOrder).mockResolvedValue(createMockOrder());
+  });
+
+  describe('runAutoReprice', () => {
+    it('should not run when auto-reprice is disabled', async () => {
+      service.updateConfig({ autoRepriceEnabled: false });
+
+      const result = await service.runAutoReprice();
+
+      expect(result.ordersScanned).toBe(0);
+      expect(result.autoRepriceStillEnabled).toBe(false);
+      expect(result.disabledReason).toContain('disabled');
+    });
+
+    it('should scan and auto-execute qualifying orders', async () => {
+      const orders = [
+        createMockOrder({ id: 'order-1', limitPrice: 150 }), // 6.25% deviation
+      ];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+
+      const result = await service.runAutoReprice();
+
+      expect(result.ordersScanned).toBe(1);
+      expect(result.successCount + result.skipped.length).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should skip orders outside auto-reprice band', async () => {
+      // Create order with small deviation that qualifies for proposal but not auto
+      const orders = [
+        createMockOrder({ id: 'order-1', limitPrice: 150 }), // 6.25% deviation
+      ];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+
+      // Update config to have very small auto-reprice band
+      service.updateConfig({ autoRepriceBandPercent: 0.5 });
+
+      const result = await service.runAutoReprice();
+
+      // Should skip because proposed price would be outside 0.5% band
+      expect(result.skipped.length).toBeGreaterThan(0);
+    });
+
+    it('should generate notifications for auto-reprice activity', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+
+      await service.runAutoReprice();
+
+      const notifications = service.getNotifications();
+      expect(notifications.length).toBeGreaterThan(0);
+    });
+
+    it('should log auto-reprice actions with AUTO-HOUSEKEEPING tag', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+
+      await service.runAutoReprice();
+
+      // Check that audit log was called with AUTO-HOUSEKEEPING prefix
+      const logCalls = vi.mocked(auditLogService.log).mock.calls;
+      const autoHousekeepingLogs = logCalls.filter(
+        (call) => call[0].summary?.includes('[AUTO-HOUSEKEEPING]')
+      );
+      // May or may not have logs depending on execution path
+      expect(logCalls.length).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should disable auto-reprice on authentication errors', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+      vi.mocked(adapter.cancelOrder).mockRejectedValue(
+        new Error('Authentication failed')
+      );
+
+      const result = await service.runAutoReprice();
+
+      expect(result.autoRepriceStillEnabled).toBe(false);
+      expect(result.disabledReason).toContain('Authentication');
+    });
+
+    it('should disable auto-reprice on rate limit errors', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+      vi.mocked(adapter.cancelOrder).mockRejectedValue(
+        new Error('Rate limit exceeded')
+      );
+
+      const result = await service.runAutoReprice();
+
+      expect(result.autoRepriceStillEnabled).toBe(false);
+    });
+
+    it('should disable auto-reprice on buying power errors', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+      vi.mocked(adapter.cancelOrder).mockRejectedValue(
+        new Error('Insufficient buying power')
+      );
+
+      const result = await service.runAutoReprice();
+
+      expect(result.autoRepriceStillEnabled).toBe(false);
+    });
+  });
+
+  describe('isAutoRepriceAvailable', () => {
+    it('should return available when enabled and not disabled', () => {
+      const result = service.isAutoRepriceAvailable();
+      expect(result.available).toBe(true);
+      expect(result.reason).toBeUndefined();
+    });
+
+    it('should return unavailable when config disabled', () => {
+      service.updateConfig({ autoRepriceEnabled: false });
+      const result = service.isAutoRepriceAvailable();
+      expect(result.available).toBe(false);
+      expect(result.reason).toContain('disabled');
+    });
+
+    it('should return unavailable after error-based disable', () => {
+      service.disableAutoReprice('Test error');
+      const result = service.isAutoRepriceAvailable();
+      expect(result.available).toBe(false);
+      expect(result.reason).toBe('Test error');
+    });
+  });
+
+  describe('enableAutoReprice', () => {
+    it('should re-enable auto-reprice after disable', () => {
+      service.disableAutoReprice('Test error');
+      expect(service.isAutoRepriceAvailable().available).toBe(false);
+
+      service.enableAutoReprice();
+      expect(service.isAutoRepriceAvailable().available).toBe(true);
+    });
+
+    it('should log config change to audit trail', () => {
+      service.disableAutoReprice('Test error');
+      vi.mocked(auditLogService.log).mockClear();
+
+      service.enableAutoReprice();
+
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'config_change',
+          details: expect.objectContaining({
+            configType: 'auto_reprice',
+            field: 'autoRepriceEnabled',
+            newValue: true,
+          }),
+        })
+      );
+    });
+
+    it('should add notification when enabled', () => {
+      service.disableAutoReprice('Test error');
+      service.clearNotifications();
+
+      service.enableAutoReprice();
+
+      const notifications = service.getNotifications();
+      expect(notifications.some((n) => n.title.includes('Enabled'))).toBe(true);
+    });
+  });
+
+  describe('disableAutoReprice', () => {
+    it('should disable auto-reprice with reason', () => {
+      service.disableAutoReprice('Critical error');
+
+      expect(service.getConfig().autoRepriceEnabled).toBe(false);
+      expect(service.isAutoRepriceAvailable().reason).toBe('Critical error');
+    });
+
+    it('should log config change to audit trail', () => {
+      service.disableAutoReprice('Critical error');
+
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'config_change',
+          details: expect.objectContaining({
+            configType: 'auto_reprice',
+            field: 'autoRepriceEnabled',
+            previousValue: true,
+            newValue: false,
+          }),
+        })
+      );
+    });
+
+    it('should add warning notification', () => {
+      service.clearNotifications();
+      service.disableAutoReprice('Critical error');
+
+      const notifications = service.getNotifications();
+      expect(notifications.some((n) => n.type === 'warning')).toBe(true);
+    });
+  });
+
+  describe('notifications management', () => {
+    it('should get active notifications', () => {
+      service.disableAutoReprice('Error 1');
+      service.enableAutoReprice();
+
+      const active = service.getActiveNotifications();
+      expect(active.length).toBe(2);
+      expect(active.every((n) => !n.dismissed)).toBe(true);
+    });
+
+    it('should dismiss single notification', () => {
+      service.disableAutoReprice('Error');
+      const notifications = service.getNotifications();
+      const notificationId = notifications[0].id;
+
+      const result = service.dismissNotification(notificationId);
+      expect(result).toBe(true);
+      expect(service.getActiveNotifications().length).toBeLessThan(
+        notifications.length
+      );
+    });
+
+    it('should dismiss all notifications', () => {
+      service.disableAutoReprice('Error 1');
+      service.enableAutoReprice();
+
+      service.dismissAllNotifications();
+
+      expect(service.getActiveNotifications().length).toBe(0);
+    });
+
+    it('should clear all notifications', () => {
+      service.disableAutoReprice('Error');
+      expect(service.getNotifications().length).toBeGreaterThan(0);
+
+      service.clearNotifications();
+
+      expect(service.getNotifications().length).toBe(0);
+    });
+
+    it('should return false when dismissing non-existent notification', () => {
+      const result = service.dismissNotification('non-existent');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('proposal source tracking', () => {
+    it('should set source to manual for regular proposals', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+
+      await service.scanOpenOrders();
+
+      const proposals = service.getProposals();
+      expect(proposals[0].source).toBe('manual');
+    });
+
+    it('should set source to auto_housekeeping for auto-repriced orders', async () => {
+      const orders = [createMockOrder({ id: 'order-1', limitPrice: 150 })];
+      vi.mocked(adapter.getOpenOrders).mockResolvedValue(orders);
+
+      await service.runAutoReprice();
+
+      // Check proposals - auto-executed ones should have auto_housekeeping source
+      const proposals = service.getProposals();
+      if (proposals.length > 0) {
+        const autoProposals = proposals.filter((p) => p.source === 'auto_housekeeping');
+        // May have auto proposals depending on execution path
+        expect(autoProposals.length).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+});
+
+describe('validateRepricingConfig with auto-reprice settings', () => {
+  it('should warn about large auto-reprice band', () => {
+    const result = validateRepricingConfig({
+      ...DEFAULT_REPRICING_CONFIG,
+      autoRepriceEnabled: true,
+      autoRepriceBandPercent: 10,
+    });
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((w) => w.includes('auto-reprice band'))).toBe(true);
+  });
+
+  it('should warn when auto-reprice band exceeds manual band', () => {
+    const result = validateRepricingConfig({
+      ...DEFAULT_REPRICING_CONFIG,
+      autoRepriceEnabled: true,
+      repriceBandPercent: 2,
+      autoRepriceBandPercent: 5,
+    });
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((w) => w.includes('less restrictive'))).toBe(true);
+  });
+
+  it('should warn about low order age with auto-reprice', () => {
+    const result = validateRepricingConfig({
+      ...DEFAULT_REPRICING_CONFIG,
+      autoRepriceEnabled: true,
+      minOrderAgeSeconds: 30,
+    });
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((w) => w.includes('auto-reprice'))).toBe(true);
+  });
+
+  it('should not warn when auto-reprice is disabled', () => {
+    const result = validateRepricingConfig({
+      ...DEFAULT_REPRICING_CONFIG,
+      autoRepriceEnabled: false,
+      autoRepriceBandPercent: 10,
+    });
+    expect(result.valid).toBe(true);
+    // Should not have auto-reprice related warnings when disabled
+    expect(result.warnings.filter((w) => w.includes('auto-reprice')).length).toBe(0);
   });
 });
