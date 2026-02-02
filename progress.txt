@@ -1858,3 +1858,119 @@
 - After successful submission, the portfolio auto-refreshes after 1 second delay
 - The modal can be closed with Escape key or clicking overlay (except during submission)
 - Next user story to implement: US-032 (Event-driven alert triggers)
+
+## 2026-02-02 - US-032: Event-driven alert triggers (COMPLETED)
+
+### What was done:
+Implemented a comprehensive event-driven alert system that monitors market conditions and portfolio state to trigger notifications when key events occur.
+
+### Core Types Created (src/types/alerts.ts):
+- **AlertTriggerType**: 5 trigger types
+  - `underlying_move`: Price moves exceeding ±X% in time window
+  - `premium_target`: Option premium hits profit/loss target
+  - `earnings_approaching`: Earnings report within N days
+  - `bid_ask_widening`: Spread exceeds threshold
+  - `portfolio_drawdown`: Portfolio loss exceeds limit
+
+- **Per-trigger Configurations**:
+  - `UnderlyingMoveConfig`: symbol, movePercent, direction (up/down/both), timeWindowMinutes
+  - `PremiumTargetConfig`: positionId/symbol, targetProfitPercent, targetLossPercent
+  - `EarningsApproachingConfig`: symbol, daysBeforeEarnings
+  - `BidAskWideningConfig`: symbol/positionId, spreadThresholdPercent
+  - `PortfolioDrawdownConfig`: maxDailyLossAmount, maxDailyLossPercent, maxUnrealizedLossPercent
+
+- **Alert Events**: AlertEvent with id, triggerId, severity (info/warning/critical), status (active/acknowledged/dismissed/resolved), title, message, context, recommendedActions
+
+- **Alert Preferences**: User-configurable settings (alertsEnabled, minimumSeverity, autoDismissResolved, dismissedRetentionHours, defaultTriggers)
+
+- **Zod Schemas**: Full validation for all types
+
+- **Helper Functions**: determineAlertSeverity(), generateRecommendedActions(), generateAlertTitle(), generateAlertMessage(), validateAlertTrigger(), createDefaultTrigger(), shouldShowAlert(), formatAlertTriggerType(), formatAlertSeverity(), formatAlertStatus()
+
+### Alert Monitor Service (src/services/alert-monitor.ts):
+- **AlertMonitorService class** with:
+  - Trigger management: createTrigger(), updateTrigger(), deleteTrigger(), enableTrigger(), disableTrigger(), getTrigger(), getAllTriggers(), getTriggersByType()
+  - Alert management: getAlert(), getAllAlerts(), getActiveAlerts(), getVisibleAlerts(), acknowledgeAlert(), dismissAlert(), addNotesToAlert(), dismissAllAlerts(), clearOldAlerts()
+  - Polling control: startPolling(), stopPolling(), isPollingActive(), getLastScanTime()
+  - Core scanning: scan() evaluates all enabled triggers
+  - Per-trigger evaluation: evaluateUnderlyingMove(), evaluatePremiumTarget(), evaluateEarningsApproaching(), evaluateBidAskWidening(), evaluatePortfolioDrawdown()
+  - Preferences: getPreferences(), updatePreferences()
+  - Statistics: getStatistics()
+  - Cleanup: destroy()
+
+- **Polling-based monitoring**: Default 1-minute interval, configurable
+- **Price history tracking**: For underlying move detection over time windows
+- **Mock earnings support**: setMockEarningsDate() for testing
+- **Max limits**: Configurable maxAlerts (100) and maxTriggers (50)
+- **Audit integration**: Logs trigger create/delete and alert recommendations
+
+### UI Component (src/ui/components/AlertNotificationCenter.tsx):
+- Collapsible alert cards sorted by severity then time
+- Severity badges with icons (critical: !!!, warning: !!, info: !)
+- Trigger type badges (Price Move, Premium Target, Earnings, Spread Widening, Drawdown)
+- Expandable details showing:
+  - Alert message
+  - Context data (price changes, position P&L, portfolio drawdown, spread %, days to earnings)
+  - Recommended actions with priority badges and rationale
+  - Symbol badges for affected positions
+  - "Take Action" buttons
+- Acknowledge/Dismiss buttons for alert lifecycle
+- Filter controls (severity dropdown, show dismissed toggle)
+- Alert preferences toggle (enable/disable)
+- Dismiss All button
+- Summary footer with counts
+
+### API Endpoints (src/api/server.ts):
+12 new endpoints added:
+- `GET /api/alerts` - Get all alerts with preferences and statistics
+- `GET /api/alerts/triggers` - Get all triggers
+- `POST /api/alerts/triggers` - Create new trigger
+- `PUT /api/alerts/triggers/:triggerId` - Update trigger
+- `DELETE /api/alerts/triggers/:triggerId` - Delete trigger
+- `POST /api/alerts/:alertId/acknowledge` - Acknowledge alert
+- `POST /api/alerts/:alertId/dismiss` - Dismiss alert
+- `POST /api/alerts/dismiss-all` - Dismiss all alerts
+- `POST /api/alerts/scan` - Manual scan trigger
+- `PUT /api/alerts/preferences` - Update preferences
+- `POST /api/alerts/polling/start` - Start polling
+- `POST /api/alerts/polling/stop` - Stop polling
+
+AlertService created lazily when broker connected, integrates with MarketDataService and AuditLogService.
+
+### CSS Styles (src/ui/styles/index.css):
+~280 lines of new styles for:
+- Alert notification center layout
+- Alert cards with severity-colored left borders
+- Severity badges (critical=red, warning=yellow, info=blue)
+- Alert card header with expand/collapse
+- Context data display
+- Recommended actions with priority styling
+- Action buttons and symbol badges
+- Filter controls and preferences toggle
+
+### Files created:
+- src/types/alerts.ts (700+ lines)
+- src/services/alert-monitor.ts (1100+ lines)
+- src/services/alert-monitor.test.ts (51 tests)
+- src/ui/components/AlertNotificationCenter.tsx (350+ lines)
+
+### Files modified:
+- src/types/index.ts (added alert type exports)
+- src/services/index.ts (added alert service exports)
+- src/api/server.ts (added 12 alert endpoints, AlertMonitorService integration)
+- src/ui/components/index.ts (added AlertNotificationCenter export)
+- src/ui/styles/index.css (added alert styles)
+- prd.json (marked US-032 as complete)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1139 tests total, 51 new tests for alert system)
+
+### Notes for next developer:
+- Alert polling is not started automatically - call POST /api/alerts/polling/start to begin
+- Earnings alerts require mock data via setMockEarningsDate() - in production, integrate with an earnings calendar API
+- Recommended actions are generated but not automatically executed (following US-033 which adds action proposals)
+- The AlertNotificationCenter component is ready to integrate into App.tsx dashboard
+- Price history for underlying moves is tracked in-memory per session
+- All alerts are logged to audit trail as 'recommendation' events with strategyType 'alert:{triggerType}'
+- Next user story to implement: US-033 (Alert action proposals) - will add TradeProposal generation when alerts fire

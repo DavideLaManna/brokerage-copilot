@@ -179,3 +179,12 @@ export {
   type ExitLadderProposal,
   type ExitLadderValidationContext,
 } from './exit-ladder-builder.js';
+
+export {
+  AlertMonitorService,
+  createAlertMonitorService,
+  evaluateAlertTrigger,
+  type AlertMonitorConfig,
+  type AlertServiceLogger,
+  type AlertScanResult,
+} from './alert-monitor.js';

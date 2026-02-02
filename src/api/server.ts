@@ -24,6 +24,8 @@ import { OrderSubmissionStore } from '../storage/order-submissions.js';
 import { TradeProposalService } from '../services/trade-proposal.js';
 import { AuditLogService } from '../services/audit-log.js';
 import type { AuditEventType, AuditLogQueryOptions, StoredAuditLogEntry } from '../types/audit-log.js';
+import { AlertMonitorService, createAlertMonitorService } from '../services/alert-monitor.js';
+import { MarketDataService, createMarketDataService } from '../services/market-data.js';
 
 /**
  * API response wrapper for consistent response format
@@ -93,6 +95,7 @@ export class ApiServer {
   private submissionStore: OrderSubmissionStore | null = null;
   private proposalService: TradeProposalService | null = null;
   private auditLogService: AuditLogService | null = null;
+  private alertService: AlertMonitorService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
@@ -1241,6 +1244,265 @@ export class ApiServer {
         next(error);
       }
     });
+
+    // =========================================================================
+    // Alert Endpoints (US-032)
+    // =========================================================================
+
+    // Get all alerts (for notification center)
+    this.app.get('/api/alerts', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          // Return empty data if no alert service configured
+          res.json(this.wrapResponse({
+            alerts: [],
+            preferences: {
+              alertsEnabled: false,
+              minimumSeverity: 'info' as const,
+            },
+            statistics: {
+              totalTriggers: 0,
+              enabledTriggers: 0,
+              totalAlerts: 0,
+              activeAlerts: 0,
+              acknowledgedAlerts: 0,
+              dismissedAlerts: 0,
+              resolvedAlerts: 0,
+              alertsBySeverity: { info: 0, warning: 0, critical: 0 },
+              alertsByType: {},
+              isPolling: false,
+            },
+          }));
+          return;
+        }
+
+        const showDismissed = req.query.showDismissed === 'true';
+        const alerts = showDismissed
+          ? alertService.getAllAlerts()
+          : alertService.getVisibleAlerts();
+
+        res.json(this.wrapResponse({
+          alerts,
+          preferences: alertService.getPreferences(),
+          statistics: alertService.getStatistics(),
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get all alert triggers
+    this.app.get('/api/alerts/triggers', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.json(this.wrapResponse({ triggers: [] }));
+          return;
+        }
+
+        res.json(this.wrapResponse({
+          triggers: alertService.getAllTriggers(),
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Create a new alert trigger
+    this.app.post('/api/alerts/triggers', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const { name, description, config } = req.body;
+        if (!name || !config) {
+          res.status(400).json(this.wrapResponse(null, 'Missing required fields: name, config'));
+          return;
+        }
+
+        const trigger = alertService.createTrigger(name, description ?? '', config);
+        res.status(201).json(this.wrapResponse(trigger));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Invalid trigger config')) {
+          res.status(400).json(this.wrapResponse(null, error.message));
+          return;
+        }
+        next(error);
+      }
+    });
+
+    // Update an alert trigger
+    this.app.put('/api/alerts/triggers/:triggerId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const triggerId = req.params.triggerId as string;
+        const updates = req.body;
+
+        const trigger = alertService.updateTrigger(triggerId, updates);
+        res.json(this.wrapResponse(trigger));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not found')) {
+          res.status(404).json(this.wrapResponse(null, error.message));
+          return;
+        }
+        next(error);
+      }
+    });
+
+    // Delete an alert trigger
+    this.app.delete('/api/alerts/triggers/:triggerId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const triggerId = req.params.triggerId as string;
+        const deleted = alertService.deleteTrigger(triggerId);
+
+        if (!deleted) {
+          res.status(404).json(this.wrapResponse(null, 'Trigger not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse({ deleted: true }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Acknowledge an alert
+    this.app.post('/api/alerts/:alertId/acknowledge', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const alertId = req.params.alertId as string;
+        const alert = alertService.acknowledgeAlert(alertId);
+
+        if (!alert) {
+          res.status(404).json(this.wrapResponse(null, 'Alert not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(alert));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Dismiss an alert
+    this.app.post('/api/alerts/:alertId/dismiss', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const alertId = req.params.alertId as string;
+        const alert = alertService.dismissAlert(alertId);
+
+        if (!alert) {
+          res.status(404).json(this.wrapResponse(null, 'Alert not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(alert));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Dismiss all alerts
+    this.app.post('/api/alerts/dismiss-all', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const count = alertService.dismissAllAlerts();
+        res.json(this.wrapResponse({ dismissedCount: count }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Run alert scan manually
+    this.app.post('/api/alerts/scan', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const result = await alertService.scan();
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Update alert preferences
+    this.app.put('/api/alerts/preferences', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const updates = req.body;
+        const preferences = alertService.updatePreferences(updates);
+        res.json(this.wrapResponse(preferences));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Start/stop alert polling
+    this.app.post('/api/alerts/polling/:action', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const { action } = req.params;
+        if (action === 'start') {
+          alertService.startPolling();
+        } else if (action === 'stop') {
+          alertService.stopPolling();
+        } else {
+          res.status(400).json(this.wrapResponse(null, 'Invalid action. Use "start" or "stop"'));
+          return;
+        }
+
+        res.json(this.wrapResponse({
+          isPolling: alertService.isPollingActive(),
+          lastScanAt: alertService.getLastScanTime(),
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
   }
 
   /**
@@ -1275,6 +1537,33 @@ export class ApiServer {
       throw new Error('Not connected to broker');
     }
     return adapter;
+  }
+
+  /**
+   * Get or create the alert monitoring service
+   */
+  private getAlertService(): AlertMonitorService | null {
+    // Create alert service lazily when broker is connected
+    if (!this.alertService) {
+      const adapter = this.connectionService.getAdapter(this.currentBrokerType);
+      if (!adapter) {
+        return null;
+      }
+
+      const marketDataService = createMarketDataService(adapter);
+      this.alertService = createAlertMonitorService(
+        adapter,
+        marketDataService,
+        this.currentBrokerType,
+        {
+          pollingIntervalMs: 60000, // 1 minute
+          maxAlerts: 100,
+          maxTriggers: 50,
+        },
+        this.auditLogService ?? undefined
+      );
+    }
+    return this.alertService;
   }
 
   /**
