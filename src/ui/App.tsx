@@ -9,7 +9,9 @@ import {
   OrderApprovalModal,
   ExecutionResultModal,
   DecisionJournal,
+  ExitLadderModal,
   type OrderApprovalData,
+  type ExitLadderProposal,
 } from './components';
 import {
   api,
@@ -401,6 +403,11 @@ export default function App(): React.ReactElement {
   const [executionResult, setExecutionResult] = useState<OrderExecutionResponse | null>(null);
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
 
+  // Exit ladder modal state
+  const [exitLadderPosition, setExitLadderPosition] = useState<Position | null>(null);
+  const [isExitLadderModalOpen, setIsExitLadderModalOpen] = useState(false);
+  const [isExitLadderSubmitting, setIsExitLadderSubmitting] = useState(false);
+
   /**
    * Fetch portfolio data from API or use mock data
    */
@@ -678,6 +685,83 @@ export default function App(): React.ReactElement {
   }, [handleRefresh]);
 
   /**
+   * Handle opening exit ladder modal for a position
+   */
+  const handleSetExitLadder = useCallback((position: Position) => {
+    setExitLadderPosition(position);
+    setIsExitLadderModalOpen(true);
+  }, []);
+
+  /**
+   * Handle exit ladder modal close
+   */
+  const handleExitLadderModalClose = useCallback(() => {
+    if (!isExitLadderSubmitting) {
+      setIsExitLadderModalOpen(false);
+      setExitLadderPosition(null);
+    }
+  }, [isExitLadderSubmitting]);
+
+  /**
+   * Handle exit ladder approval
+   * Submits all exit ladder orders to the broker
+   */
+  const handleExitLadderApprove = useCallback(async (proposal: ExitLadderProposal) => {
+    if (!exitLadderPosition) return;
+
+    setIsExitLadderSubmitting(true);
+
+    try {
+      if (DEMO_MODE) {
+        // Simulate submission in demo mode
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        console.log('[EXIT LADDER] Demo mode - simulated submission:', {
+          proposalId: proposal.proposalId,
+          orders: proposal.orders.length,
+        });
+        setIsExitLadderModalOpen(false);
+        setExitLadderPosition(null);
+        // Refresh data
+        await handleRefresh();
+      } else {
+        // Real API call to submit exit ladder
+        const response = await fetch('/api/exit-ladder/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proposalId: proposal.proposalId,
+            positionId: exitLadderPosition.id,
+            rungs: proposal.config.rungs,
+          }),
+        });
+
+        const json = await response.json();
+
+        if (!json.success) {
+          throw new Error(json.error || 'Failed to submit exit ladder');
+        }
+
+        console.log('[EXIT LADDER] Successfully submitted exit ladder orders:', {
+          proposalId: proposal.proposalId,
+          correlationId: json.data.correlationId,
+          orderCount: json.data.orderResults?.length || 0,
+        });
+
+        setIsExitLadderModalOpen(false);
+        setExitLadderPosition(null);
+
+        // Refresh data to show new orders
+        setTimeout(handleRefresh, 1000);
+      }
+    } catch (err) {
+      console.error('[EXIT LADDER] Error submitting exit ladder:', err);
+      // Keep modal open so user can try again
+    } finally {
+      setIsExitLadderSubmitting(false);
+    }
+  }, [exitLadderPosition, handleRefresh]);
+
+  /**
    * Initial data load
    */
   useEffect(() => {
@@ -752,6 +836,7 @@ export default function App(): React.ReactElement {
           positions={positions}
           loading={loading}
           onRefresh={handleRefresh}
+          onSetExitLadder={handleSetExitLadder}
         />
 
         <OrdersTable
@@ -789,6 +874,18 @@ export default function App(): React.ReactElement {
         onClose={handleResultModalClose}
         onRefresh={handleRefresh}
       />
+
+      {/* Exit Ladder Modal */}
+      {exitLadderPosition && (
+        <ExitLadderModal
+          position={exitLadderPosition}
+          isOpen={isExitLadderModalOpen}
+          onClose={handleExitLadderModalClose}
+          onApprove={handleExitLadderApprove}
+          isSubmitting={isExitLadderSubmitting}
+          demoMode={DEMO_MODE}
+        />
+      )}
     </div>
   );
 }

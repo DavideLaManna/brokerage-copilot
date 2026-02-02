@@ -835,6 +835,173 @@ export class ApiServer {
     });
 
     // ===========================================================================
+    // Exit Ladder Endpoints
+    // ===========================================================================
+
+    // Preview an exit ladder for a position
+    this.app.post('/api/exit-ladder/preview', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+        const { positionId, rungs } = req.body;
+
+        if (!positionId || !rungs || !Array.isArray(rungs)) {
+          res.status(400).json(this.wrapResponse(null, 'Missing required parameters: positionId and rungs'));
+          return;
+        }
+
+        // Validate rungs
+        for (const rung of rungs) {
+          if (typeof rung.targetProfitPercent !== 'number' || typeof rung.closePercent !== 'number') {
+            res.status(400).json(this.wrapResponse(null, 'Invalid rung format: each rung must have targetProfitPercent and closePercent'));
+            return;
+          }
+        }
+
+        // Get positions to find the target position
+        const positions = await adapter.getPositions();
+        const position = positions.find(p => p.id === positionId);
+
+        if (!position) {
+          res.status(404).json(this.wrapResponse(null, 'Position not found'));
+          return;
+        }
+
+        // Import the exit ladder builder dynamically
+        const { proposeExitLadder } = await import('../services/exit-ladder-builder.js');
+
+        // Get account for validation context
+        const account = await adapter.getAccountSummary();
+        const otherPositions = positions.filter(p => p.id !== positionId);
+
+        // Build the exit ladder proposal
+        const proposal = proposeExitLadder(
+          position,
+          { rungs },
+          {
+            riskConfig: DEFAULT_RISK_CONFIG,
+            account,
+            otherPositions,
+          }
+        );
+
+        // Convert proposal for JSON response
+        const responseProposal = {
+          ...proposal,
+          createdAt: proposal.createdAt.toISOString(),
+          orders: proposal.orders.map(order => ({
+            rungIndex: order.rungIndex,
+            targetProfitPercent: order.targetProfitPercent,
+            exitPrice: order.exitPrice,
+            contractsToClose: order.contractsToClose,
+            estimatedCredit: order.estimatedCredit,
+            estimatedProfit: order.estimatedProfit,
+            currentPrice: order.currentPrice,
+            costBasis: order.costBasis,
+            validationPassed: order.validationResult?.valid ?? true,
+            validationMessage: order.validationResult?.rejectionReasons?.join(', '),
+          })),
+        };
+
+        res.json(this.wrapResponse(responseProposal));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Submit exit ladder orders
+    this.app.post('/api/exit-ladder/submit', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const adapter = this.getAdapterOrThrow();
+
+        if (!this.submissionStore) {
+          res.status(503).json(this.wrapResponse(null, 'Order submission service not configured'));
+          return;
+        }
+
+        const { proposalId, positionId, rungs } = req.body;
+
+        if (!positionId || !rungs || !Array.isArray(rungs)) {
+          res.status(400).json(this.wrapResponse(null, 'Missing required parameters: positionId and rungs'));
+          return;
+        }
+
+        // Get positions to find the target position
+        const positions = await adapter.getPositions();
+        const position = positions.find(p => p.id === positionId);
+
+        if (!position) {
+          res.status(404).json(this.wrapResponse(null, 'Position not found'));
+          return;
+        }
+
+        // Import the exit ladder builder and submission service dynamically
+        const { proposeExitLadder, toBuiltDraftOrdersResult } = await import('../services/exit-ladder-builder.js');
+
+        // Get account for validation context
+        const account = await adapter.getAccountSummary();
+        const otherPositions = positions.filter(p => p.id !== positionId);
+
+        // Build the exit ladder proposal
+        const proposal = proposeExitLadder(
+          position,
+          { rungs },
+          {
+            riskConfig: DEFAULT_RISK_CONFIG,
+            account,
+            otherPositions,
+          }
+        );
+
+        // Check if validation passed
+        if (!proposal.validationSummary.allPassed) {
+          res.status(400).json(this.wrapResponse(null, 'Exit ladder validation failed: ' + proposal.validationSummary.failureReasons.join(', ')));
+          return;
+        }
+
+        // Convert to draft orders result for submission
+        const draftOrdersResult = toBuiltDraftOrdersResult(proposal);
+
+        // Create submission service
+        const accountId = this.currentBrokerType;
+        const submissionService = new OrderSubmissionService(
+          adapter,
+          this.submissionStore,
+          accountId
+        );
+
+        // Submit all orders
+        const batchResult = await submissionService.submitOrders(draftOrdersResult);
+
+        // Log the submission
+        console.log(`[EXIT LADDER] Submitted ${draftOrdersResult.orders.length} exit ladder orders for position ${positionId}`, {
+          proposalId: proposal.proposalId,
+          correlationId: proposal.correlationId,
+          success: batchResult.success,
+          succeeded: batchResult.summary.succeeded,
+          failed: batchResult.summary.failed,
+        });
+
+        // Build response
+        const response = {
+          success: batchResult.success,
+          proposalId: proposal.proposalId,
+          correlationId: proposal.correlationId,
+          orderResults: batchResult.results,
+          summary: batchResult.summary,
+          brokerOrderIds: batchResult.results
+            .filter((r: OrderSubmissionResult) => r.success && r.orderId)
+            .map((r: OrderSubmissionResult) => r.orderId!),
+          submittedAt: batchResult.submittedAt,
+        };
+
+        res.json(this.wrapResponse(response));
+      } catch (error) {
+        console.error('[EXIT LADDER] Error submitting exit ladder:', error);
+        next(error);
+      }
+    });
+
+    // ===========================================================================
     // Decision Journal Endpoints
     // ===========================================================================
 

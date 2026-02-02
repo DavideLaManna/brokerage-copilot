@@ -9,6 +9,7 @@ export { default as OrderApprovalModal } from './OrderApprovalModal';
 export { default as ExecutionResultModal } from './ExecutionResultModal';
 export { default as DecisionJournal } from './DecisionJournal';
 export { default as AutoRepriceNotifications } from './AutoRepriceNotifications';
+export { default as ExitLadderModal } from './ExitLadderModal';
 export type {
   OrderApprovalData,
   OrderApprovalModalProps,
@@ -34,3 +35,10 @@ export type {
   AutoRepriceNotificationData,
   AutoRepriceStatus,
 } from './AutoRepriceNotifications';
+export type {
+  ExitLadderModalProps,
+  ExitLadderProposal,
+  ExitLadderOrder,
+  ExitLadderRung,
+  LadderPreset,
+} from './ExitLadderModal';

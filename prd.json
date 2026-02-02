@@ -492,8 +492,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive Exit Ladder UI feature. (1) ExitLadderModal.tsx component with: position summary display (symbol, contract, qty, cost, current price, P&L, expiration), preset ladder selection buttons (conservative 15/30/50%, standard 25/50/100%, aggressive 50/100/200%), custom rungs editor (add/remove/edit targets up to 5), order preview cards showing sell qty, target %, exit price, estimated credit and profit, validation status display with warnings, summary totals (contracts to exit, remaining, total credit/profit), approve/cancel buttons with validation gate. (2) Updated PositionsTable.tsx with Exit Ladder button in Actions column, only shown for long option positions (quantity > 0, assetClass === 'option'). (3) Added API endpoints in server.ts: POST /api/exit-ladder/preview (builds proposal from position and rungs using proposeExitLadder service), POST /api/exit-ladder/submit (validates and submits all exit ladder orders via OrderSubmissionService). (4) Integrated into App.tsx with exitLadderPosition state, isExitLadderModalOpen, isExitLadderSubmitting, handlers for open/close/approve including demo mode support. (5) Comprehensive CSS styles in index.css for modal, preset buttons, custom rung editor, order cards, summary rows, validation display, warnings. (6) Demo mode simulates proposal building and submission locally. (7) Added 64 tests across ExitLadderModal.test.ts (helper functions, preset ladders, mock proposal building, position eligibility, validation, type safety) and PositionsTable.test.ts (exit ladder eligibility, helper functions, rendering logic). Typecheck passes. 1088 total tests pass. UI builds successfully."
     },
     {
       "id": "US-032",

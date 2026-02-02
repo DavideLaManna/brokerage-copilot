@@ -5,6 +5,7 @@ interface Props {
   positions: Position[];
   loading?: boolean;
   onRefresh?: () => void;
+  onSetExitLadder?: (position: Position) => void;
 }
 
 function formatCurrency(value: number): string {
@@ -44,7 +45,7 @@ function getContractDescription(position: Position): string {
   return `${opt.underlying} ${expStr} $${opt.strike} ${typeStr}`;
 }
 
-export default function PositionsTable({ positions, loading, onRefresh }: Props): React.ReactElement {
+export default function PositionsTable({ positions, loading, onRefresh, onSetExitLadder }: Props): React.ReactElement {
   return (
     <section className="section section--full-width">
       <header className="section-header">
@@ -79,6 +80,7 @@ export default function PositionsTable({ positions, loading, onRefresh }: Props)
                   <th style={{ textAlign: 'right' }}>Mkt Value</th>
                   <th style={{ textAlign: 'right' }}>P&L</th>
                   <th style={{ textAlign: 'right' }}>P&L %</th>
+                  {onSetExitLadder && <th style={{ textAlign: 'center' }}>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -128,6 +130,21 @@ export default function PositionsTable({ positions, loading, onRefresh }: Props)
                       >
                         {formatPercent(position.unrealizedPnLPercent)}
                       </td>
+                      {onSetExitLadder && (
+                        <td style={{ textAlign: 'center' }}>
+                          {position.quantity > 0 && position.assetClass === 'option' ? (
+                            <button
+                              className="btn btn--small"
+                              onClick={() => onSetExitLadder(position)}
+                              title="Set up exit ladder for profit-taking"
+                            >
+                              Exit Ladder
+                            </button>
+                          ) : (
+                            <span className="text-muted">-</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

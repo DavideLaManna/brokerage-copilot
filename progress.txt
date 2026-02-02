@@ -1753,3 +1753,108 @@
 - The ExitLadderProposal includes all data needed for the UI modal (US-031)
 - toBuiltDraftOrdersResult() provides compatibility with existing order submission flow
 - Next user story to implement: US-031 (Exit ladder UI)
+
+## 2026-02-02 - US-031: Exit ladder UI (COMPLETED)
+
+### What was done:
+- Created comprehensive Exit Ladder UI for staged profit-taking orders
+- Implemented all acceptance criteria: Exit Ladder button, configurable modal, order preview, approval flow, batch submission
+- Full integration with existing exit-ladder-builder service from US-030
+
+### Core Components Created:
+
+#### ExitLadderModal.tsx (src/ui/components/)
+- Position summary display: symbol, contract details, qty, avg cost, current price, P&L, expiration
+- Preset ladder selection buttons:
+  - Conservative: +15%, +30%, +50% targets
+  - Standard: +25%, +50%, +100% targets (default)
+  - Aggressive: +50%, +100%, +200% targets
+- Custom rungs editor:
+  - Add/remove/edit up to 5 custom profit targets
+  - Each rung has target profit % and close % inputs
+  - Validates total close % ≈ 100%
+- Order preview cards showing:
+  - SELL badge, quantity to close, target profit %
+  - Limit price (exit price), estimated credit, estimated profit
+  - Validation status (passed/failed badge)
+  - Validation error messages for failed orders
+- Summary section:
+  - Contracts to exit (X of Y)
+  - Remaining contracts
+  - Total estimated credit
+  - Total estimated profit
+- Validation summary for failed orders with failure reasons
+- Warnings section for non-critical issues
+- Approve/Cancel buttons (approve disabled if validation fails)
+
+#### PositionsTable Updates (src/ui/components/)
+- Added optional onSetExitLadder callback prop
+- Added Actions column header (conditional on callback presence)
+- Exit Ladder button for eligible positions:
+  - Only shows for long positions (quantity > 0)
+  - Only shows for option positions (assetClass === 'option')
+  - Short positions and equity show dash "-" instead
+
+### API Endpoints (src/api/server.ts):
+- POST /api/exit-ladder/preview
+  - Accepts positionId and rungs array
+  - Fetches position from broker
+  - Builds proposal using proposeExitLadder()
+  - Returns proposal with orders, validation, warnings
+- POST /api/exit-ladder/submit
+  - Accepts proposalId, positionId, rungs
+  - Re-validates exit ladder
+  - Submits all orders via OrderSubmissionService
+  - Returns batch submission result with broker order IDs
+
+### App.tsx Integration:
+- Added state: exitLadderPosition, isExitLadderModalOpen, isExitLadderSubmitting
+- handleSetExitLadder(): Opens modal with selected position
+- handleExitLadderModalClose(): Closes modal (blocked during submission)
+- handleExitLadderApprove(): Submits via API or simulates in demo mode
+- ExitLadderModal rendered when exitLadderPosition is set
+- Auto-refresh portfolio after successful submission
+
+### CSS Styles (src/ui/styles/index.css):
+- Exit ladder modal specific width
+- Position summary with detail grid
+- Preset button grid with active state styling
+- Custom rung editor with input groups
+- Order cards with validation states
+- Summary rows with totals styling
+- Validation summary and warnings
+- Error state display
+
+### Demo Mode Support:
+- Local proposal building without API calls
+- Simulated submission with delay
+- Console logging of simulated actions
+
+### Files created:
+- src/ui/components/ExitLadderModal.tsx (520+ lines)
+- src/ui/components/ExitLadderModal.test.ts (56 tests)
+- src/ui/components/PositionsTable.test.ts (38 tests)
+
+### Files modified:
+- src/ui/components/PositionsTable.tsx (added Exit Ladder button and Actions column)
+- src/ui/components/index.ts (exports for ExitLadderModal and types)
+- src/api/server.ts (added /api/exit-ladder/preview and /submit endpoints)
+- src/ui/App.tsx (integrated ExitLadderModal with state management)
+- src/ui/styles/index.css (added ~280 lines of exit ladder styles)
+- prd.json (marked US-031 as complete)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1088 tests total, 64 new tests for exit ladder UI)
+
+### Notes for next developer:
+- Exit ladder is only available for long option positions (buy-side opens)
+- The modal builds proposals locally in demo mode using the same algorithm as the backend
+- Real API calls use the proposeExitLadder() service from US-030
+- Orders are submitted via OrderSubmissionService for idempotency
+- Preset ladders match the PRESET_LADDERS constants from exit-ladder-builder.ts
+- Custom rungs support up to 5 targets to prevent overly complex ladders
+- The approval button is disabled until all orders pass validation
+- After successful submission, the portfolio auto-refreshes after 1 second delay
+- The modal can be closed with Escape key or clicking overlay (except during submission)
+- Next user story to implement: US-032 (Event-driven alert triggers)
