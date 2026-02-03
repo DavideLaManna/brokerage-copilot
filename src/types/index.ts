@@ -260,3 +260,33 @@ export {
   generateStatusSummary,
   validateKillSwitchConfig,
 } from './kill-switch.js';
+
+// Spread types
+export type {
+  SpreadSubtype,
+  SpreadLeg,
+  SpreadDefinition,
+  SpreadOrderRequest,
+  SpreadToOrdersResult,
+  OptionsLevel,
+  BrokerOptionsCapabilities,
+  SpreadCapabilityRequirement,
+  SpreadRiskMetrics,
+} from './spreads.js';
+
+export {
+  SpreadSubtypeSchema,
+  SpreadLegSchema,
+  SpreadDefinitionSchema,
+  SpreadOrderRequestSchema,
+  BrokerOptionsCapabilitiesSchema,
+  SpreadRiskMetricsSchema,
+  determineSpreadSubtype,
+  getSpreadCapabilityRequirements,
+  canTradeSpread,
+  contractsToSpreadLegs,
+  createDefaultCapabilities,
+  formatSpreadSubtype,
+  isMultiLegStrategy,
+  getExpectedLegCount,
+} from './spreads.js';

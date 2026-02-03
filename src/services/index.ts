@@ -208,3 +208,26 @@ export {
   type KillSwitchServiceLogger,
   type KillSwitchCallback,
 } from './kill-switch.js';
+
+export {
+  SpreadCalculator,
+  createSpreadCalculator,
+  createSpreadFromProposal,
+  calculateSpreadRiskMetrics,
+  calculateVerticalSpreadRisk,
+  calculateIronCondorRisk,
+  calculateStraddleStrangleRisk,
+  calculateCalendarSpreadRisk,
+  calculateSingleLegRisk,
+  calculateSpreadWidth,
+  calculateNetPremium,
+  validateSpread as validateSpreadProposal,
+  type SpreadCalculationContext,
+  type SpreadValidationResult as SpreadCalcValidationResult,
+} from './spread-calculator.js';
+
+// Re-export spread validation from risk-engine
+export {
+  validateSpread,
+  type SpreadValidationResult,
+} from './risk-engine.js';

@@ -3,6 +3,7 @@
  *
  * Validates orders against risk configuration and current portfolio state.
  * Blocks orders that violate risk limits to prevent over-leveraging.
+ * Supports both single-leg and multi-leg spread strategies.
  */
 
 import type {
@@ -14,6 +15,13 @@ import type {
   Greeks,
 } from '../types/broker.js';
 import type { RiskConfig } from '../types/risk-config.js';
+import type { TradeProposal } from '../types/trade-proposal.js';
+import type { BrokerOptionsCapabilities, SpreadRiskMetrics } from '../types/spreads.js';
+import { canTradeSpread, isMultiLegStrategy } from '../types/spreads.js';
+import {
+  createSpreadFromProposal,
+  calculateSpreadRiskMetrics,
+} from './spread-calculator.js';
 
 // ============================================================================
 // Validation Result Types
@@ -29,7 +37,9 @@ export type RiskCheckType =
   | 'dte_range'
   | 'liquidity'
   | 'max_positions'
-  | 'max_contracts';
+  | 'max_contracts'
+  | 'spread_capability'
+  | 'spread_structure';
 
 /**
  * Result of a single risk check
@@ -80,6 +90,28 @@ export interface ValidationContext {
   positions: Position[];
   /** Quote for the option contract (for liquidity check) */
   quote?: Quote | OptionContract;
+  /** Quotes for multiple legs (keyed by option symbol) */
+  legQuotes?: Map<string, Quote | OptionContract>;
+  /** Broker options capabilities (for spread validation) */
+  capabilities?: BrokerOptionsCapabilities;
+}
+
+/**
+ * Result of validating a spread/proposal
+ */
+export interface SpreadValidationResult {
+  /** Whether the spread passed all risk checks */
+  valid: boolean;
+  /** Individual check results */
+  checks: RiskCheckResult[];
+  /** Summary of failed checks */
+  rejectionReasons: string[];
+  /** Timestamp of validation */
+  validatedAt: Date;
+  /** The proposal that was validated */
+  proposal: TradeProposal;
+  /** Calculated spread risk metrics */
+  riskMetrics?: SpreadRiskMetrics;
 }
 
 /**
@@ -638,6 +670,411 @@ export class RiskEngine {
       });
     }
   }
+
+  // ===========================================================================
+  // Spread Validation Methods
+  // ===========================================================================
+
+  /**
+   * Validate a multi-leg trade proposal (spread) against risk configuration.
+   *
+   * This method uses spread-aware risk calculations for accurate max loss
+   * determination based on the spread structure.
+   *
+   * @param proposal - The trade proposal to validate
+   * @param context - Validation context (config, account, positions, capabilities)
+   * @returns Validation result with spread-specific metrics
+   */
+  validateSpread(proposal: TradeProposal, context: ValidationContext): SpreadValidationResult {
+    const checks: RiskCheckResult[] = [];
+    const validatedAt = new Date();
+
+    // Create spread definition and calculate risk metrics
+    let riskMetrics: SpreadRiskMetrics | undefined;
+    try {
+      const spread = createSpreadFromProposal(proposal);
+      riskMetrics = calculateSpreadRiskMetrics(spread, {
+        account: context.account,
+        positions: context.positions,
+        quotes: context.legQuotes,
+        capabilities: context.capabilities,
+      });
+
+      // Check spread capability (broker account level)
+      if (context.capabilities) {
+        checks.push(this.checkSpreadCapability(spread.spreadSubtype, context.capabilities));
+      }
+
+      // Check spread structure
+      checks.push(this.checkSpreadStructure(proposal, spread));
+
+      // Check risk per trade using spread max loss
+      checks.push(this.checkSpreadRiskPerTrade(riskMetrics.maxLoss, context));
+
+      // Check concentration
+      checks.push(this.checkSpreadConcentration(proposal.underlying, riskMetrics.maxLoss, context));
+
+      // Check buying power using spread cost
+      checks.push(this.checkSpreadBuyingPower(riskMetrics, context));
+
+    } catch (error) {
+      checks.push({
+        checkType: 'spread_structure',
+        passed: false,
+        message: `Failed to analyze spread: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+
+    // Check max positions
+    checks.push(this.checkMaxPositionsForSpread(proposal, context));
+
+    // Check max contracts per position
+    checks.push(this.checkMaxContractsForSpread(proposal, context));
+
+    // Check DTE for all legs
+    for (let i = 0; i < proposal.contracts.length; i++) {
+      const contract = proposal.contracts[i]!;
+      const orderRequest: OrderRequest = {
+        symbol: contract.optionSymbol,
+        assetClass: 'option',
+        side: contract.side,
+        orderType: 'limit',
+        timeInForce: 'day',
+        quantity: contract.quantity,
+        optionDetails: {
+          underlying: contract.underlying,
+          strike: contract.strike,
+          expiration: contract.expiration,
+          optionType: contract.optionType,
+        },
+      };
+      const dteCheck = this.checkDTERange(orderRequest, context);
+      if (!dteCheck.passed) {
+        dteCheck.message = `Leg ${i + 1}: ${dteCheck.message}`;
+        checks.push(dteCheck);
+        break; // Only report first DTE failure
+      }
+    }
+
+    // Check liquidity for all legs if quotes provided
+    if (context.legQuotes) {
+      for (let i = 0; i < proposal.contracts.length; i++) {
+        const contract = proposal.contracts[i]!;
+        const quote = context.legQuotes.get(contract.optionSymbol);
+        if (quote) {
+          const liquidityCheck = this.checkLiquidity(
+            { symbol: contract.optionSymbol } as OrderRequest,
+            { ...context, quote }
+          );
+          if (!liquidityCheck.passed) {
+            liquidityCheck.message = `Leg ${i + 1}: ${liquidityCheck.message}`;
+            checks.push(liquidityCheck);
+          }
+        }
+      }
+    }
+
+    // Compile results
+    const failedChecks = checks.filter((c) => !c.passed);
+    const valid = failedChecks.length === 0;
+    const rejectionReasons = failedChecks.map((c) => c.message);
+
+    const result: SpreadValidationResult = {
+      valid,
+      checks,
+      rejectionReasons,
+      validatedAt,
+      proposal,
+      riskMetrics,
+    };
+
+    // Log validation
+    this.logSpreadValidation(result, context);
+
+    return result;
+  }
+
+  /**
+   * Check if broker account has capability to trade this spread type.
+   */
+  private checkSpreadCapability(
+    spreadSubtype: string,
+    capabilities: BrokerOptionsCapabilities
+  ): RiskCheckResult {
+    const checkType: RiskCheckType = 'spread_capability';
+
+    const result = canTradeSpread(capabilities, spreadSubtype as any);
+
+    return {
+      checkType,
+      passed: result.allowed,
+      message: result.allowed
+        ? `Account has capability to trade ${spreadSubtype}`
+        : result.reason || 'Account lacks spread trading capability',
+      details: {
+        actual: capabilities.optionsLevel,
+        limit: 2, // Minimum for spreads
+        unit: 'level',
+      },
+    };
+  }
+
+  /**
+   * Check if the spread structure is valid.
+   */
+  private checkSpreadStructure(
+    proposal: TradeProposal,
+    spread: { spreadSubtype: string; legs: any[] }
+  ): RiskCheckResult {
+    const checkType: RiskCheckType = 'spread_structure';
+
+    // Validate leg count matches strategy
+    const isMultiLeg = isMultiLegStrategy(proposal.strategyType);
+    const hasMultipleLegs = spread.legs.length > 1;
+
+    if (isMultiLeg && !hasMultipleLegs) {
+      return {
+        checkType,
+        passed: false,
+        message: `${proposal.strategyType} requires multiple legs, but only ${spread.legs.length} provided`,
+      };
+    }
+
+    // Check all legs have same underlying
+    const underlyings = new Set(proposal.contracts.map(c => c.underlying));
+    if (underlyings.size > 1) {
+      return {
+        checkType,
+        passed: false,
+        message: `All legs must have same underlying, found: ${Array.from(underlyings).join(', ')}`,
+      };
+    }
+
+    return {
+      checkType,
+      passed: true,
+      message: `Valid ${spread.spreadSubtype} structure with ${spread.legs.length} legs`,
+    };
+  }
+
+  /**
+   * Check risk per trade for a spread using calculated max loss.
+   */
+  private checkSpreadRiskPerTrade(maxLoss: number, context: ValidationContext): RiskCheckResult {
+    const checkType: RiskCheckType = 'risk_per_trade';
+    const { config, account } = context;
+
+    if (account.netLiquidation <= 0) {
+      return {
+        checkType,
+        passed: false,
+        message: 'Cannot validate risk: account value is zero or negative',
+      };
+    }
+
+    // Handle undefined/infinite max loss
+    if (maxLoss === Infinity) {
+      return {
+        checkType,
+        passed: false,
+        message: 'Spread has undefined risk (theoretically unlimited loss)',
+        details: {
+          actual: Infinity,
+          limit: config.maxRiskPerTradePercent,
+          unit: '%',
+        },
+      };
+    }
+
+    const riskPercent = (maxLoss / account.netLiquidation) * 100;
+    const limit = config.maxRiskPerTradePercent;
+    const passed = riskPercent <= limit;
+
+    return {
+      checkType,
+      passed,
+      message: passed
+        ? `Spread max loss ${riskPercent.toFixed(2)}% is within ${limit}% limit`
+        : `Spread max loss ${riskPercent.toFixed(2)}% exceeds ${limit}% limit`,
+      details: {
+        actual: riskPercent,
+        limit,
+        unit: '%',
+      },
+    };
+  }
+
+  /**
+   * Check concentration for a spread.
+   */
+  private checkSpreadConcentration(
+    underlying: string,
+    maxLoss: number,
+    context: ValidationContext
+  ): RiskCheckResult {
+    const checkType: RiskCheckType = 'concentration';
+    const { config, account, positions } = context;
+
+    if (account.netLiquidation <= 0) {
+      return {
+        checkType,
+        passed: false,
+        message: 'Cannot validate concentration: account value is zero or negative',
+      };
+    }
+
+    const currentExposure = this.calculateUnderlyingExposure(underlying, positions);
+    const totalExposure = currentExposure + (maxLoss === Infinity ? 0 : maxLoss);
+    const concentrationPercent = (totalExposure / account.netLiquidation) * 100;
+    const limit = config.maxRiskPerUnderlyingPercent;
+    const passed = concentrationPercent <= limit;
+
+    return {
+      checkType,
+      passed,
+      message: passed
+        ? `Concentration in ${underlying} (${concentrationPercent.toFixed(2)}%) is within ${limit}% limit`
+        : `Concentration in ${underlying} (${concentrationPercent.toFixed(2)}%) exceeds ${limit}% limit`,
+      details: {
+        actual: concentrationPercent,
+        limit,
+        unit: '%',
+      },
+    };
+  }
+
+  /**
+   * Check buying power for a spread.
+   */
+  private checkSpreadBuyingPower(
+    riskMetrics: SpreadRiskMetrics,
+    context: ValidationContext
+  ): RiskCheckResult {
+    const checkType: RiskCheckType = 'buying_power';
+    const { account } = context;
+
+    // For debit spreads, cost is the net premium paid
+    // For credit spreads, use max loss as margin requirement
+    const requiredBuyingPower = riskMetrics.netPremium > 0
+      ? riskMetrics.netPremium  // Debit spread: need to pay premium
+      : riskMetrics.maxLoss === Infinity
+        ? Math.abs(riskMetrics.netPremium) * 2  // Undefined risk: conservative estimate
+        : riskMetrics.maxLoss;  // Credit spread: margin = max loss
+
+    const passed = requiredBuyingPower <= account.buyingPower;
+
+    return {
+      checkType,
+      passed,
+      message: passed
+        ? `Required $${requiredBuyingPower.toFixed(2)} is within buying power $${account.buyingPower.toFixed(2)}`
+        : `Insufficient buying power: requires $${requiredBuyingPower.toFixed(2)}, available $${account.buyingPower.toFixed(2)}`,
+      details: {
+        actual: requiredBuyingPower,
+        limit: account.buyingPower,
+        unit: '$',
+      },
+    };
+  }
+
+  /**
+   * Check max positions for a spread.
+   */
+  private checkMaxPositionsForSpread(
+    proposal: TradeProposal,
+    context: ValidationContext
+  ): RiskCheckResult {
+    const { config, positions } = context;
+    const checkType: RiskCheckType = 'max_positions';
+
+    const currentPositions = positions.filter((p) => p.quantity !== 0).length;
+
+    // Check if this is adding to existing underlying
+    const isNewPosition = !positions.some((p) => {
+      const posUnderlying =
+        p.assetClass === 'option' && p.optionDetails ? p.optionDetails.underlying : p.symbol;
+      return posUnderlying === proposal.underlying;
+    });
+
+    const projectedPositions = isNewPosition ? currentPositions + 1 : currentPositions;
+    const limit = config.maxOpenPositions;
+    const passed = projectedPositions <= limit;
+
+    return {
+      checkType,
+      passed,
+      message: passed
+        ? `Position count ${projectedPositions} is within ${limit} position limit`
+        : `Max positions exceeded: ${projectedPositions} positions would exceed ${limit} limit`,
+      details: {
+        actual: projectedPositions,
+        limit,
+        unit: 'positions',
+      },
+    };
+  }
+
+  /**
+   * Check max contracts for a spread.
+   */
+  private checkMaxContractsForSpread(
+    proposal: TradeProposal,
+    context: ValidationContext
+  ): RiskCheckResult {
+    const { config } = context;
+    const checkType: RiskCheckType = 'max_contracts';
+
+    // For spreads, check the maximum contracts across all legs
+    const maxQuantity = Math.max(...proposal.contracts.map(c => c.quantity));
+    const limit = config.maxContractsPerPosition;
+    const passed = maxQuantity <= limit;
+
+    return {
+      checkType,
+      passed,
+      message: passed
+        ? `Max contracts per leg (${maxQuantity}) is within ${limit} contract limit`
+        : `Max contracts exceeded: ${maxQuantity} contracts would exceed ${limit} limit`,
+      details: {
+        actual: maxQuantity,
+        limit,
+        unit: 'contracts',
+      },
+    };
+  }
+
+  /**
+   * Log spread validation attempt for audit trail.
+   */
+  private logSpreadValidation(result: SpreadValidationResult, context: ValidationContext): void {
+    const logData = {
+      timestamp: result.validatedAt.toISOString(),
+      valid: result.valid,
+      proposal: {
+        strategyType: result.proposal.strategyType,
+        underlying: result.proposal.underlying,
+        legCount: result.proposal.contracts.length,
+      },
+      riskMetrics: result.riskMetrics ? {
+        maxLoss: result.riskMetrics.maxLoss,
+        maxProfit: result.riskMetrics.maxProfit,
+        isDefinedRisk: result.riskMetrics.isDefinedRisk,
+      } : undefined,
+      accountId: 'audit',
+      checksRun: result.checks.length,
+      checksPassed: result.checks.filter((c) => c.passed).length,
+      checksFailed: result.checks.filter((c) => !c.passed).length,
+    };
+
+    if (result.valid) {
+      this.logger.info('Spread validation PASSED', logData);
+    } else {
+      this.logger.warn('Spread validation FAILED', {
+        ...logData,
+        rejectionReasons: result.rejectionReasons,
+      });
+    }
+  }
 }
 
 // ============================================================================
@@ -681,5 +1118,37 @@ export function validateOrder(
     account,
     positions,
     quote,
+  });
+}
+
+/**
+ * Validate a multi-leg spread against risk configuration.
+ *
+ * This function provides spread-aware risk calculations including
+ * proper max loss for vertical spreads, iron condors, etc.
+ *
+ * @param proposal - The trade proposal to validate
+ * @param config - Risk configuration
+ * @param account - Account summary
+ * @param positions - Current positions
+ * @param legQuotes - Optional quotes for each leg (keyed by option symbol)
+ * @param capabilities - Optional broker capabilities for spread validation
+ * @returns Spread validation result with risk metrics
+ */
+export function validateSpread(
+  proposal: TradeProposal,
+  config: RiskConfig,
+  account: AccountSummary,
+  positions: Position[],
+  legQuotes?: Map<string, Quote | OptionContract>,
+  capabilities?: BrokerOptionsCapabilities
+): SpreadValidationResult {
+  const engine = new RiskEngine();
+  return engine.validateSpread(proposal, {
+    config,
+    account,
+    positions,
+    legQuotes,
+    capabilities,
   });
 }

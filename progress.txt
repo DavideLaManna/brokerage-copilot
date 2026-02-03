@@ -2114,3 +2114,107 @@ Created comprehensive emergency kill switch system for immediately stopping all 
 - For full kill switch panel (with status details), set `compact={false}` prop
 - Demo mode simulates activation/deactivation client-side
 - Remaining incomplete features: US-034 (Multi-leg spreads), US-035-037 (Research ingestion), US-038 (Scanner), US-039 (Performance attribution)
+
+## 2026-02-03 - US-034: Multi-leg spread support (COMPLETED)
+
+### What was done:
+- Created comprehensive multi-leg spread support infrastructure
+
+### Key Files Created:
+
+**src/types/spreads.ts:**
+- SpreadSubtype enum with 12 spread types: call_debit_spread, call_credit_spread, put_debit_spread, put_credit_spread, call_calendar, put_calendar, iron_condor, iron_butterfly, long_straddle, short_straddle, long_strangle, short_strangle, custom
+- SpreadLeg interface for individual option legs
+- SpreadDefinition interface with legs, netPremium, spreadWidth, quantity, multiplier
+- SpreadOrderRequest for atomic multi-leg orders
+- OptionsLevel (0-4) type for broker capability levels
+- BrokerOptionsCapabilities interface tracking account approval level and permitted spread types
+- SpreadCapabilityRequirement mapping spread types to minimum requirements
+- SpreadRiskMetrics interface with maxLoss, maxProfit, riskRewardRatio, breakEvenPrices, isDefinedRisk
+- Helper functions: determineSpreadSubtype(), getSpreadCapabilityRequirements(), canTradeSpread(), contractsToSpreadLegs(), formatSpreadSubtype(), isMultiLegStrategy(), getExpectedLegCount()
+
+**src/services/spread-calculator.ts:**
+- SpreadCalculator class for calculating spread risk metrics
+- calculateVerticalSpreadRisk() - 2-leg vertical spreads (max loss = debit for debit spreads, width - credit for credit spreads)
+- calculateIronCondorRisk() - 4-leg iron condors/butterflies (max loss = wider wing width - credit)
+- calculateStraddleStrangleRisk() - straddles/strangles (long = defined risk, short = undefined)
+- calculateCalendarSpreadRisk() - calendar spreads with variable IV-dependent risk
+- calculateSingleLegRisk() - single options (long = premium, short = unlimited for calls)
+- calculateSpreadWidth() - calculates strike width for verticals
+- calculateNetPremium() - calculates net debit/credit from leg prices
+- createSpreadFromProposal() - converts TradeProposal to SpreadDefinition
+- calculateSpreadRiskMetrics() - routes to correct calculator based on spread type
+- validateSpread() - validates spread structure and capabilities
+
+**src/services/spread-calculator.test.ts:**
+- 78 comprehensive tests covering:
+  - Spread width calculation
+  - Net premium calculation
+  - Vertical spread risk (call debit, put credit)
+  - Iron condor risk
+  - Straddle/strangle risk (long and short)
+  - Spread detection from proposals
+  - SpreadCalculator class methods
+  - Spread subtype auto-detection (all 12 types)
+  - Broker capability checking at all levels
+
+### Files Modified:
+
+**src/services/risk-engine.ts:**
+- Added validateSpread() method for spread-aware pre-trade validation
+- Added SpreadValidationResult interface with spread risk metrics
+- Added new RiskCheckType values: 'spread_capability', 'spread_structure'
+- checkSpreadCapability() - validates broker account options level
+- checkSpreadStructure() - validates leg count and underlying consistency
+- checkSpreadRiskPerTrade() - uses calculated max loss (rejects undefined risk)
+- checkSpreadConcentration() - concentration check using spread max loss
+- checkSpreadBuyingPower() - uses debit for debit spreads, max loss for credit spreads
+- checkMaxPositionsForSpread() - counts underlying exposure
+- checkMaxContractsForSpread() - validates max contracts per leg
+- logSpreadValidation() - audit logging for spread validations
+- Standalone validateSpread() function for convenient usage
+
+**src/types/index.ts:**
+- Added exports for spread types: SpreadSubtype, SpreadLeg, SpreadDefinition, SpreadOrderRequest, SpreadToOrdersResult, OptionsLevel, BrokerOptionsCapabilities, SpreadCapabilityRequirement, SpreadRiskMetrics
+- Added exports for spread schemas and helper functions
+
+**src/services/index.ts:**
+- Added exports for SpreadCalculator class and all spread calculation functions
+- Added validateSpread export from risk-engine
+
+### Spread Risk Calculation Examples:
+
+**Call Debit Spread (150/155 calls for $1.50 net debit):**
+- Max Loss = $150 (premium paid)
+- Max Profit = $350 (width - premium = $500 - $150)
+- Break-even = 151.50 (long strike + premium)
+
+**Put Credit Spread (150/145 puts for $1.00 net credit):**
+- Max Loss = $400 (width - credit = $500 - $100)
+- Max Profit = $100 (credit received)
+- Break-even = 149.00 (short strike - premium)
+
+**Iron Condor (140/145 puts, 155/160 calls for $1.00 net credit):**
+- Max Loss = $400 (wider wing width - credit)
+- Max Profit = $100 (credit received)
+- Break-evens = 144.00 and 156.00
+
+### Broker Capability Requirements:
+- Level 1: Single-leg long options only
+- Level 2: Vertical spreads (debit and credit)
+- Level 3: Calendar spreads, iron condors, iron butterflies
+- Level 4: Naked short options (short straddles, strangles)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1265 tests total, 78 new tests for spread support)
+
+### Notes for next developer:
+- Spread subtype is auto-detected from legs using determineSpreadSubtype()
+- validateSpread() from risk-engine provides full pre-trade validation for spreads
+- SpreadCalculator.calculateMaxLoss() returns fallback (netPremium * 10) for undefined risk strategies
+- Broker capabilities should be fetched from broker adapter and passed to validation context
+- UI already displays multi-leg orders via OrderApprovalModal; additional spread grouping could be added
+- TradeProposal schema was already multi-leg capable; this PR adds spread-aware risk calculation
+- Calendar spread risk is estimated conservatively (actual depends on IV)
+- Remaining incomplete features: US-035-037 (Research ingestion), US-038 (Scanner), US-039 (Performance attribution)
