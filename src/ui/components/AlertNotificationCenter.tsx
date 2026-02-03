@@ -80,11 +80,50 @@ export interface AlertPreferencesData {
   minimumSeverity: 'info' | 'warning' | 'critical';
 }
 
+/**
+ * Proposal data generated from an alert action
+ */
+export interface AlertProposalData {
+  /** Proposal ID */
+  id: string;
+  /** Proposal status */
+  status: 'draft' | 'approved' | 'rejected' | 'executed';
+  /** Strategy type */
+  strategyType: string;
+  /** Underlying symbol */
+  underlying: string;
+  /** Number of contracts */
+  contractCount: number;
+  /** Confidence level */
+  confidence: 'low' | 'medium' | 'high';
+  /** When proposal was created */
+  createdAt: Date;
+}
+
+/**
+ * Generated proposals for an alert
+ */
+export interface AlertWithProposalsData {
+  /** Alert ID */
+  alertId: string;
+  /** Correlation ID linking proposals */
+  correlationId: string;
+  /** Generated proposals */
+  proposals: Array<{
+    success: boolean;
+    proposal?: AlertProposalData;
+    action: AlertRecommendedActionData;
+    error?: string;
+  }>;
+}
+
 export interface AlertNotificationCenterProps {
   /** Alerts to display */
   alerts: AlertEventData[];
   /** Alert preferences */
   preferences: AlertPreferencesData;
+  /** Generated proposals for alerts (keyed by alert ID) */
+  alertProposals?: Record<string, AlertWithProposalsData>;
   /** Callback when alert is acknowledged */
   onAcknowledge?: (alertId: string) => void;
   /** Callback when alert is dismissed */
@@ -95,8 +134,14 @@ export interface AlertNotificationCenterProps {
   onUpdatePreferences?: (updates: Partial<AlertPreferencesData>) => void;
   /** Callback when action button is clicked */
   onActionClick?: (alertId: string, action: AlertRecommendedActionData) => void;
+  /** Callback to generate proposals for an alert */
+  onGenerateProposals?: (alertId: string) => void;
+  /** Callback when a proposal is approved for one-click execution */
+  onApproveProposal?: (alertId: string, proposalId: string) => void;
   /** Whether component is in loading state */
   isLoading?: boolean;
+  /** Whether proposals are being generated */
+  isGeneratingProposals?: boolean;
 }
 
 // ============================================================================
@@ -167,12 +212,16 @@ function formatPercent(value: number): string {
 export function AlertNotificationCenter({
   alerts,
   preferences,
+  alertProposals = {},
   onAcknowledge,
   onDismiss,
   onDismissAll,
   onUpdatePreferences,
   onActionClick,
+  onGenerateProposals,
+  onApproveProposal,
   isLoading = false,
+  isGeneratingProposals = false,
 }: AlertNotificationCenterProps): React.ReactElement {
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [showDismissed, setShowDismissed] = useState(false);
@@ -362,32 +411,90 @@ export function AlertNotificationCenter({
                 {/* Recommended Actions */}
                 {alert.recommendedActions.length > 0 && (
                   <div className="alert-actions">
-                    <h4>Recommended Actions:</h4>
-                    {alert.recommendedActions.map((action, idx) => (
-                      <div key={idx} className={`alert-action alert-action-priority-${action.priority}`}>
-                        <div className="alert-action-header">
-                          <span className="alert-action-icon">{getActionIcon(action.action)}</span>
-                          <span className="alert-action-type">{action.action.toUpperCase()}</span>
-                          <span className={`alert-priority-badge priority-${action.priority}`}>
-                            {action.priority}
-                          </span>
-                        </div>
-                        <p className="alert-action-rationale">{action.rationale}</p>
-                        {action.symbols.length > 0 && (
-                          <div className="alert-action-symbols">
-                            {action.symbols.map((s) => (
-                              <span key={s} className="alert-symbol-badge">{s}</span>
-                            ))}
-                          </div>
-                        )}
+                    <div className="alert-actions-header">
+                      <h4>Recommended Actions:</h4>
+                      {/* Generate Proposals Button */}
+                      {!alertProposals[alert.id] && alert.recommendedActions.some(
+                        (a) => a.action === 'trim' || a.action === 'exit' || a.action === 'hedge'
+                      ) && (
                         <button
-                          className="btn btn-small btn-action"
-                          onClick={() => onActionClick?.(alert.id, action)}
+                          className="btn btn-small btn-primary"
+                          onClick={() => onGenerateProposals?.(alert.id)}
+                          disabled={isGeneratingProposals}
                         >
-                          Take Action
+                          {isGeneratingProposals ? 'Generating...' : 'Generate Orders'}
                         </button>
-                      </div>
-                    ))}
+                      )}
+                    </div>
+                    {alert.recommendedActions.map((action, idx) => {
+                      // Find proposal for this action if exists
+                      const proposalData = alertProposals[alert.id]?.proposals.find(
+                        (p) => p.action.action === action.action
+                      );
+
+                      return (
+                        <div key={idx} className={`alert-action alert-action-priority-${action.priority}`}>
+                          <div className="alert-action-header">
+                            <span className="alert-action-icon">{getActionIcon(action.action)}</span>
+                            <span className="alert-action-type">{action.action.toUpperCase()}</span>
+                            <span className={`alert-priority-badge priority-${action.priority}`}>
+                              {action.priority}
+                            </span>
+                          </div>
+                          <p className="alert-action-rationale">{action.rationale}</p>
+                          {action.symbols.length > 0 && (
+                            <div className="alert-action-symbols">
+                              {action.symbols.map((s) => (
+                                <span key={s} className="alert-symbol-badge">{s}</span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Show proposal if generated */}
+                          {proposalData?.success && proposalData.proposal && (
+                            <div className="alert-proposal">
+                              <div className="alert-proposal-header">
+                                <span className="alert-proposal-badge">Order Ready</span>
+                                <span className="alert-proposal-strategy">
+                                  {proposalData.proposal.strategyType.replace(/_/g, ' ')}
+                                </span>
+                              </div>
+                              <div className="alert-proposal-details">
+                                <span>{proposalData.proposal.underlying}</span>
+                                <span>{proposalData.proposal.contractCount} contract(s)</span>
+                                <span className={`confidence-${proposalData.proposal.confidence}`}>
+                                  {proposalData.proposal.confidence} confidence
+                                </span>
+                              </div>
+                              <button
+                                className="btn btn-small btn-success"
+                                onClick={() => onApproveProposal?.(alert.id, proposalData.proposal!.id)}
+                              >
+                                Approve &amp; Execute
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Show error if proposal generation failed */}
+                          {proposalData && !proposalData.success && (
+                            <div className="alert-proposal-error">
+                              <span className="alert-error-badge">Failed</span>
+                              <span className="alert-error-message">{proposalData.error}</span>
+                            </div>
+                          )}
+
+                          {/* Show Take Action button if no proposal yet */}
+                          {!proposalData && (
+                            <button
+                              className="btn btn-small btn-action"
+                              onClick={() => onActionClick?.(alert.id, action)}
+                            >
+                              Take Action
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 

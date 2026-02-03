@@ -188,3 +188,13 @@ export {
   type AlertServiceLogger,
   type AlertScanResult,
 } from './alert-monitor.js';
+
+export {
+  AlertActionProposalsService,
+  createAlertActionProposalsService,
+  generateAlertProposal,
+  type AlertActionProposalsConfig,
+  type AlertProposalResult,
+  type AlertWithProposals,
+  type GenerateProposalOptions,
+} from './alert-action-proposals.js';

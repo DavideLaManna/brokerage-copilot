@@ -26,6 +26,7 @@ import { AuditLogService } from '../services/audit-log.js';
 import type { AuditEventType, AuditLogQueryOptions, StoredAuditLogEntry } from '../types/audit-log.js';
 import { AlertMonitorService, createAlertMonitorService } from '../services/alert-monitor.js';
 import { MarketDataService, createMarketDataService } from '../services/market-data.js';
+import { AlertActionProposalsService, createAlertActionProposalsService, type AlertWithProposals, type AlertProposalResult } from '../services/alert-action-proposals.js';
 
 /**
  * API response wrapper for consistent response format
@@ -96,6 +97,7 @@ export class ApiServer {
   private proposalService: TradeProposalService | null = null;
   private auditLogService: AuditLogService | null = null;
   private alertService: AlertMonitorService | null = null;
+  private alertProposalsService: AlertActionProposalsService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
@@ -1503,6 +1505,122 @@ export class ApiServer {
         next(error);
       }
     });
+
+    // Generate proposals for an alert - POST /api/alerts/:alertId/proposals
+    this.app.post('/api/alerts/:alertId/proposals', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertService = this.getAlertService();
+        if (!alertService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert service not configured'));
+          return;
+        }
+
+        const alertProposalsService = this.getAlertProposalsService();
+        if (!alertProposalsService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert proposals service not configured'));
+          return;
+        }
+
+        const { alertId } = req.params;
+        const alert = alertService.getAlert(alertId as string);
+
+        if (!alert) {
+          res.status(404).json(this.wrapResponse(null, 'Alert not found'));
+          return;
+        }
+
+        const { closePercent, orderType } = req.body as { closePercent?: number; orderType?: 'limit' | 'market' };
+
+        const result = await alertProposalsService.generateProposalsForAlert(alert, {
+          closePercent,
+          orderType,
+        });
+
+        res.json(this.wrapResponse({
+          alertId: result.alert.id,
+          correlationId: result.correlationId,
+          proposals: result.proposals.map((p) => ({
+            success: p.success,
+            proposalId: p.proposal?.id,
+            action: p.action,
+            error: p.error,
+            generatedAt: p.generatedAt.toISOString(),
+          })),
+          successCount: result.proposals.filter((p) => p.success).length,
+          failureCount: result.proposals.filter((p) => !p.success).length,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get proposals for an alert - GET /api/alerts/:alertId/proposals
+    this.app.get('/api/alerts/:alertId/proposals', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertProposalsService = this.getAlertProposalsService();
+        if (!alertProposalsService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert proposals service not configured'));
+          return;
+        }
+
+        const { alertId } = req.params;
+        const result = alertProposalsService.getProposalsForAlert(alertId as string);
+
+        if (!result) {
+          res.status(404).json(this.wrapResponse(null, 'No proposals found for this alert'));
+          return;
+        }
+
+        res.json(this.wrapResponse({
+          alertId: result.alert.id,
+          correlationId: result.correlationId,
+          proposals: result.proposals.map((p) => ({
+            success: p.success,
+            proposal: p.proposal ? {
+              id: p.proposal.id,
+              status: p.proposal.status,
+              strategyType: p.proposal.proposal.strategyType,
+              underlying: p.proposal.proposal.underlying,
+              contracts: p.proposal.proposal.contracts.length,
+              confidence: p.proposal.proposal.confidence,
+              createdAt: p.proposal.createdAt.toISOString(),
+            } : undefined,
+            action: p.action,
+            error: p.error,
+            generatedAt: p.generatedAt.toISOString(),
+          })),
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get all alert proposals - GET /api/alerts/proposals
+    this.app.get('/api/alerts/proposals', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const alertProposalsService = this.getAlertProposalsService();
+        if (!alertProposalsService) {
+          res.status(503).json(this.wrapResponse(null, 'Alert proposals service not configured'));
+          return;
+        }
+
+        const allProposals = alertProposalsService.getAllAlertProposals();
+
+        res.json(this.wrapResponse({
+          total: allProposals.length,
+          alertProposals: allProposals.map((ap) => ({
+            alertId: ap.alert.id,
+            alertTitle: ap.alert.title,
+            alertSeverity: ap.alert.severity,
+            correlationId: ap.correlationId,
+            proposalCount: ap.proposals.length,
+            successCount: ap.proposals.filter((p) => p.success).length,
+          })),
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
   }
 
   /**
@@ -1564,6 +1682,36 @@ export class ApiServer {
       );
     }
     return this.alertService;
+  }
+
+  /**
+   * Get or create the alert action proposals service
+   */
+  private getAlertProposalsService(): AlertActionProposalsService | null {
+    // Create alert proposals service lazily when broker is connected
+    if (!this.alertProposalsService) {
+      const adapter = this.connectionService.getAdapter(this.currentBrokerType);
+      if (!adapter || !this.proposalService) {
+        return null;
+      }
+
+      const marketDataService = createMarketDataService(adapter);
+      this.alertProposalsService = createAlertActionProposalsService(
+        adapter,
+        marketDataService,
+        this.proposalService,
+        this.currentBrokerType,
+        {
+          defaultExitPercent: 100,
+          defaultTrimPercent: 50,
+          defaultTimeInForce: 'day',
+          defaultOrderType: 'limit',
+          slippagePercent: 1,
+        },
+        this.auditLogService ?? undefined
+      );
+    }
+    return this.alertProposalsService;
   }
 
   /**

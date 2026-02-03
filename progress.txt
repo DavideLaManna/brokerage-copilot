@@ -1974,3 +1974,45 @@ AlertService created lazily when broker connected, integrates with MarketDataSer
 - Price history for underlying moves is tracked in-memory per session
 - All alerts are logged to audit trail as 'recommendation' events with strategyType 'alert:{triggerType}'
 - Next user story to implement: US-033 (Alert action proposals) - will add TradeProposal generation when alerts fire
+
+## 2026-02-03 - US-033: Alert action proposals (COMPLETED)
+
+### What was done:
+- Fixed TypeScript errors in existing code:
+  - src/api/server.ts: Added type casting for `alertId` parameter from `req.params` (lines 1525, 1567)
+  - src/services/alert-action-proposals.ts: Fixed Date to ISO string conversion for audit log dataSources (line 210)
+- Fixed test assertions in alert-action-proposals.test.ts:
+  - Updated tests to use proper Vitest array matching with `some()` instead of `toContain(expect.stringContaining())`
+- Verified existing implementation of AlertActionProposalsService (src/services/alert-action-proposals.ts):
+  - `generateProposalsForAlert()` analyzes alert and generates TradeProposals for actionable recommendations
+  - `buildExitProposal()` creates full position close orders
+  - `buildTrimProposal()` creates partial position close orders (default 50%)
+  - `buildHedgeProposal()` proposes protective puts/calls based on portfolio delta
+  - In-memory storage for alert-proposal associations
+  - Full audit log integration with `alert:${alertId}` tag
+- Verified existing UI in AlertNotificationCenter.tsx:
+  - `alertProposals` prop for proposal display
+  - "Generate Orders" button with `onGenerateProposals` callback
+  - Proposal preview showing strategy type, underlying, contract count, confidence
+  - "Approve & Execute" button for one-click approval via `onApproveProposal` callback
+  - Error display for failed generations
+- Verified API endpoints exist in server.ts:
+  - POST /api/alerts/:alertId/proposals - generate proposals for alert
+  - GET /api/alerts/:alertId/proposals - get proposals for specific alert
+  - GET /api/alerts/proposals - get all alert proposals
+- Verified CSS styling in index.css for alert proposals
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1169 tests total, 30 tests for alert-action-proposals)
+
+### Notes for next developer:
+- US-033 was mostly implemented but had TypeScript errors that needed fixing
+- The feature is complete: alert triggers → proposal generation → UI preview → one-click approval
+- Next incomplete feature is US-034 (Multi-leg spread support) with priority 34
+- The AlertActionProposalsService integrates with:
+  - AlertMonitorService for alert events
+  - TradeProposalService for storing proposals
+  - AuditLogService for logging recommendations
+  - MarketDataService for current quotes and option chains
+  - BrokerAdapter for fetching positions
