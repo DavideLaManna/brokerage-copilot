@@ -229,3 +229,34 @@ export {
   validateAlertTrigger,
   createDefaultTrigger,
 } from './alerts.js';
+
+// Kill switch types
+export type {
+  KillSwitchState,
+  KillSwitchActivator,
+  KillSwitchReasonCategory,
+  KillSwitchConfig,
+  KillSwitchStatus,
+  KillSwitchActivationResult,
+  KillSwitchDeactivationResult,
+  KillSwitchEvent,
+  StoredKillSwitchState,
+} from './kill-switch.js';
+
+export {
+  KillSwitchConfigSchema,
+  KillSwitchStatusSchema,
+  KillSwitchEventSchema,
+  StoredKillSwitchStateSchema,
+  DEFAULT_KILL_SWITCH_CONFIG,
+  KILL_SWITCH_SCHEMA_VERSION,
+  isKillSwitchActive,
+  isReadOnlyMode,
+  canReEnable,
+  getRemainingCooldownSeconds,
+  formatKillSwitchState,
+  formatReasonCategory,
+  createInactiveStatus,
+  generateStatusSummary,
+  validateKillSwitchConfig,
+} from './kill-switch.js';

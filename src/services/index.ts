@@ -198,3 +198,13 @@ export {
   type AlertWithProposals,
   type GenerateProposalOptions,
 } from './alert-action-proposals.js';
+
+export {
+  KillSwitchService,
+  createKillSwitchService,
+  shouldBlockOperation,
+  getBlockedOperationMessage,
+  type KillSwitchServiceConfig,
+  type KillSwitchServiceLogger,
+  type KillSwitchCallback,
+} from './kill-switch.js';

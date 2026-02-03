@@ -50,3 +50,10 @@ export type {
   AlertRecommendedActionData,
   AlertPreferencesData,
 } from './AlertNotificationCenter';
+export { default as KillSwitchButton } from './KillSwitchButton';
+export type {
+  KillSwitchButtonProps,
+  KillSwitchStatusData,
+  KillSwitchActivationResult,
+  KillSwitchDeactivationResult,
+} from './KillSwitchButton';

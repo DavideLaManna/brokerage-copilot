@@ -10,8 +10,12 @@ import {
   ExecutionResultModal,
   DecisionJournal,
   ExitLadderModal,
+  KillSwitchButton,
   type OrderApprovalData,
   type ExitLadderProposal,
+  type KillSwitchStatusData,
+  type KillSwitchActivationResult,
+  type KillSwitchDeactivationResult,
 } from './components';
 import {
   api,
@@ -408,6 +412,20 @@ export default function App(): React.ReactElement {
   const [isExitLadderModalOpen, setIsExitLadderModalOpen] = useState(false);
   const [isExitLadderSubmitting, setIsExitLadderSubmitting] = useState(false);
 
+  // Kill switch state
+  const [killSwitchStatus, setKillSwitchStatus] = useState<KillSwitchStatusData>({
+    state: 'inactive',
+    readOnlyMode: false,
+    config: {
+      cancelOrdersOnActivation: false,
+      disableAutoRepriceOnActivation: true,
+      disableAlertsOnActivation: true,
+      reEnableCooldownSeconds: 30,
+      requireConfirmationForReEnable: true,
+    },
+  });
+  const [killSwitchLoading, setKillSwitchLoading] = useState(false);
+
   /**
    * Fetch portfolio data from API or use mock data
    */
@@ -762,16 +780,172 @@ export default function App(): React.ReactElement {
   }, [exitLadderPosition, handleRefresh]);
 
   /**
+   * Fetch kill switch status from API
+   */
+  const fetchKillSwitchStatus = useCallback(async () => {
+    if (DEMO_MODE) {
+      // Use local state in demo mode
+      return;
+    }
+
+    try {
+      const status = await api.getKillSwitchStatus();
+      setKillSwitchStatus(status);
+    } catch (err) {
+      console.error('[KILL SWITCH] Error fetching status:', err);
+    }
+  }, []);
+
+  /**
+   * Handle kill switch activation
+   */
+  const handleKillSwitchActivate = useCallback(async (
+    reason?: string,
+    cancelOrders?: boolean
+  ): Promise<KillSwitchActivationResult> => {
+    setKillSwitchLoading(true);
+
+    if (DEMO_MODE) {
+      // Simulate activation in demo mode
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const activatedAt = new Date().toISOString();
+      const newStatus: KillSwitchStatusData = {
+        ...killSwitchStatus,
+        state: 'active',
+        readOnlyMode: true,
+        activatedAt,
+        activatedBy: 'user',
+        reason,
+        reasonCategory: 'manual',
+        ordersCancelled: cancelOrders ? orders.length : 0,
+        cancelledOrderIds: cancelOrders ? orders.map(o => o.id) : [],
+        disabledFeatures: ['auto_reprice', 'alert_monitoring'],
+        canReEnableAt: new Date(Date.now() + 30000).toISOString(),
+      };
+      setKillSwitchStatus(newStatus);
+      setKillSwitchLoading(false);
+
+      return {
+        success: true,
+        status: newStatus,
+        ordersCancelled: cancelOrders ? orders.map(o => ({
+          orderId: o.id,
+          symbol: o.symbol,
+          side: o.side,
+          quantity: o.quantity,
+          success: true,
+        })) : [],
+        featuresDisabled: ['auto_reprice', 'alert_monitoring'],
+        activatedAt,
+      };
+    }
+
+    try {
+      const result = await api.activateKillSwitch(reason, cancelOrders, 'manual');
+      setKillSwitchStatus(result.status);
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Unknown error';
+      return {
+        success: false,
+        status: killSwitchStatus,
+        ordersCancelled: [],
+        featuresDisabled: [],
+        error,
+        activatedAt: new Date().toISOString(),
+      };
+    } finally {
+      setKillSwitchLoading(false);
+    }
+  }, [killSwitchStatus, orders]);
+
+  /**
+   * Handle kill switch deactivation
+   */
+  const handleKillSwitchDeactivate = useCallback(async (
+    confirmed: boolean
+  ): Promise<KillSwitchDeactivationResult> => {
+    setKillSwitchLoading(true);
+
+    if (DEMO_MODE) {
+      // Simulate deactivation in demo mode
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const deactivatedAt = new Date().toISOString();
+
+      // Check cooldown
+      if (killSwitchStatus.canReEnableAt) {
+        const cooldownEnd = new Date(killSwitchStatus.canReEnableAt).getTime();
+        if (Date.now() < cooldownEnd) {
+          const remainingSeconds = Math.ceil((cooldownEnd - Date.now()) / 1000);
+          setKillSwitchLoading(false);
+          return {
+            success: false,
+            status: killSwitchStatus,
+            featuresReEnabled: [],
+            error: `Cannot re-enable yet. Cooldown remaining: ${remainingSeconds} seconds`,
+            deactivatedAt,
+          };
+        }
+      }
+
+      // Check confirmation
+      if (!confirmed && killSwitchStatus.config.requireConfirmationForReEnable) {
+        setKillSwitchLoading(false);
+        return {
+          success: false,
+          status: killSwitchStatus,
+          featuresReEnabled: [],
+          error: 'User confirmation required to re-enable the system',
+          deactivatedAt,
+        };
+      }
+
+      const newStatus: KillSwitchStatusData = {
+        state: 'inactive',
+        readOnlyMode: false,
+        config: killSwitchStatus.config,
+      };
+      setKillSwitchStatus(newStatus);
+      setKillSwitchLoading(false);
+
+      return {
+        success: true,
+        status: newStatus,
+        featuresReEnabled: killSwitchStatus.disabledFeatures || [],
+        deactivatedAt,
+      };
+    }
+
+    try {
+      const result = await api.deactivateKillSwitch(confirmed);
+      setKillSwitchStatus(result.status);
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Unknown error';
+      return {
+        success: false,
+        status: killSwitchStatus,
+        featuresReEnabled: [],
+        error,
+        deactivatedAt: new Date().toISOString(),
+      };
+    } finally {
+      setKillSwitchLoading(false);
+    }
+  }, [killSwitchStatus]);
+
+  /**
    * Initial data load
    */
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       await fetchPortfolio();
+      await fetchKillSwitchStatus();
       setLoading(false);
     };
     loadData();
-  }, [fetchPortfolio]);
+  }, [fetchPortfolio, fetchKillSwitchStatus]);
 
   return (
     <div className="dashboard">
@@ -783,22 +957,31 @@ export default function App(): React.ReactElement {
             {DEMO_MODE && <span className="demo-badge"> (Demo Mode)</span>}
           </p>
         </div>
-        <div className="connection-status">
-          <span
-            className={`connection-indicator ${
-              connection.connected
-                ? 'connection-indicator--connected'
-                : 'connection-indicator--disconnected'
-            }`}
+        <div className="header-controls">
+          <KillSwitchButton
+            status={killSwitchStatus}
+            onActivate={handleKillSwitchActivate}
+            onDeactivate={handleKillSwitchDeactivate}
+            loading={killSwitchLoading}
+            compact={true}
           />
-          <span>
-            {connection.connected
-              ? `Connected to ${connection.brokerName}`
-              : 'Disconnected'}
-          </span>
-          {connection.accountId && (
-            <span className="text-muted">({connection.accountId})</span>
-          )}
+          <div className="connection-status">
+            <span
+              className={`connection-indicator ${
+                connection.connected
+                  ? 'connection-indicator--connected'
+                  : 'connection-indicator--disconnected'
+              }`}
+            />
+            <span>
+              {connection.connected
+                ? `Connected to ${connection.brokerName}`
+                : 'Disconnected'}
+            </span>
+            {connection.accountId && (
+              <span className="text-muted">({connection.accountId})</span>
+            )}
+          </div>
         </div>
       </header>
 

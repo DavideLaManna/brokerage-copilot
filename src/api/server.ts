@@ -27,6 +27,8 @@ import type { AuditEventType, AuditLogQueryOptions, StoredAuditLogEntry } from '
 import { AlertMonitorService, createAlertMonitorService } from '../services/alert-monitor.js';
 import { MarketDataService, createMarketDataService } from '../services/market-data.js';
 import { AlertActionProposalsService, createAlertActionProposalsService, type AlertWithProposals, type AlertProposalResult } from '../services/alert-action-proposals.js';
+import { KillSwitchService, createKillSwitchService, shouldBlockOperation, getBlockedOperationMessage } from '../services/kill-switch.js';
+import type { KillSwitchStatus, KillSwitchActivationResult, KillSwitchDeactivationResult, KillSwitchConfig, KillSwitchReasonCategory, KillSwitchActivator } from '../types/kill-switch.js';
 
 /**
  * API response wrapper for consistent response format
@@ -98,6 +100,7 @@ export class ApiServer {
   private auditLogService: AuditLogService | null = null;
   private alertService: AlertMonitorService | null = null;
   private alertProposalsService: AlertActionProposalsService | null = null;
+  private killSwitchService: KillSwitchService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
@@ -1621,6 +1624,120 @@ export class ApiServer {
         next(error);
       }
     });
+
+    // =========================================================================
+    // Kill Switch Endpoints (US-040)
+    // =========================================================================
+
+    // Get kill switch status
+    this.app.get('/api/kill-switch', (_req: Request, res: Response) => {
+      const killSwitchService = this.getKillSwitchService();
+      const status = killSwitchService.getStatus();
+      res.json(this.wrapResponse(status));
+    });
+
+    // Activate kill switch
+    this.app.post('/api/kill-switch/activate', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { reason, reasonCategory, cancelOrders } = req.body as {
+          reason?: string;
+          reasonCategory?: KillSwitchReasonCategory;
+          cancelOrders?: boolean;
+        };
+
+        const killSwitchService = this.getKillSwitchService();
+
+        // Update config if cancelOrders is specified
+        if (cancelOrders !== undefined) {
+          killSwitchService.updateConfig({ cancelOrdersOnActivation: cancelOrders });
+        }
+
+        // Set adapter if not set
+        const adapter = this.connectionService.getAdapter(this.currentBrokerType);
+        if (adapter) {
+          killSwitchService.setAdapter(adapter);
+        }
+
+        const result = await killSwitchService.activate(
+          'user' as KillSwitchActivator,
+          reason,
+          reasonCategory ?? 'manual'
+        );
+
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Deactivate kill switch (re-enable system)
+    this.app.post('/api/kill-switch/deactivate', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { confirmed } = req.body as { confirmed?: boolean };
+
+        const killSwitchService = this.getKillSwitchService();
+        const result = await killSwitchService.deactivate(confirmed ?? false);
+
+        if (!result.success) {
+          res.status(400).json(this.wrapResponse(result, result.error));
+          return;
+        }
+
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Update kill switch config
+    this.app.put('/api/kill-switch/config', (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const config = req.body as Partial<KillSwitchConfig>;
+
+        const killSwitchService = this.getKillSwitchService();
+        killSwitchService.updateConfig(config);
+
+        res.json(this.wrapResponse({
+          config: killSwitchService.getConfig(),
+          status: killSwitchService.getStatus(),
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get kill switch event history
+    this.app.get('/api/kill-switch/history', (_req: Request, res: Response) => {
+      const killSwitchService = this.getKillSwitchService();
+      const events = killSwitchService.getEventHistory();
+      res.json(this.wrapResponse({
+        total: events.length,
+        events,
+      }));
+    });
+
+    // Check if operation is blocked
+    this.app.get('/api/kill-switch/check/:operation', (req: Request, res: Response) => {
+      const operation = req.params.operation as 'order_submit' | 'order_modify' | 'auto_reprice' | 'alert_action';
+      const validOperations = ['order_submit', 'order_modify', 'auto_reprice', 'alert_action'];
+
+      if (!validOperations.includes(operation)) {
+        res.status(400).json(this.wrapResponse(null, `Invalid operation. Must be one of: ${validOperations.join(', ')}`));
+        return;
+      }
+
+      const killSwitchService = this.getKillSwitchService();
+      const status = killSwitchService.getStatus();
+      const blocked = shouldBlockOperation(status, operation);
+      const message = blocked ? getBlockedOperationMessage(status, operation) : '';
+
+      res.json(this.wrapResponse({
+        operation,
+        blocked,
+        message,
+        killSwitchActive: status.state === 'active',
+      }));
+    });
   }
 
   /**
@@ -1712,6 +1829,35 @@ export class ApiServer {
       );
     }
     return this.alertProposalsService;
+  }
+
+  /**
+   * Get or create the kill switch service
+   */
+  private getKillSwitchService(): KillSwitchService {
+    // Create kill switch service lazily
+    if (!this.killSwitchService) {
+      // Use broker type as account ID for simplicity
+      const accountId = this.currentBrokerType;
+      this.killSwitchService = createKillSwitchService(
+        accountId,
+        {
+          logger: {
+            info: (msg, data) => console.log(`[KillSwitch] ${msg}`, data),
+            warn: (msg, data) => console.warn(`[KillSwitch] ${msg}`, data),
+            error: (msg, data) => console.error(`[KillSwitch] ${msg}`, data),
+          },
+        },
+        this.auditLogService ?? undefined
+      );
+
+      // Set adapter if connected
+      const adapter = this.connectionService.getAdapter(this.currentBrokerType);
+      if (adapter) {
+        this.killSwitchService.setAdapter(adapter);
+      }
+    }
+    return this.killSwitchService;
   }
 
   /**

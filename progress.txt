@@ -2016,3 +2016,101 @@ AlertService created lazily when broker connected, integrates with MarketDataSer
   - AuditLogService for logging recommendations
   - MarketDataService for current quotes and option chains
   - BrokerAdapter for fetching positions
+
+## 2026-02-03 - US-040: Kill switch (COMPLETED)
+
+### What was done:
+Created comprehensive emergency kill switch system for immediately stopping all automation and entering read-only mode.
+
+### Types and Schema (src/types/kill-switch.ts):
+~350 lines of types including:
+- `KillSwitchState`: 'active' | 'inactive'
+- `KillSwitchActivator`: 'user' | 'system' | 'automated'
+- `KillSwitchReasonCategory`: manual, risk_limit, error_cascade, market_conditions, connection_issues, other
+- `KillSwitchConfig`: cancelOrdersOnActivation (default false), disableAutoRepriceOnActivation (true), disableAlertsOnActivation (true), reEnableCooldownSeconds (30), requireConfirmationForReEnable (true)
+- `KillSwitchStatus`: Full state with activatedAt, activatedBy, reason, ordersCancelled, disabledFeatures, canReEnableAt
+- `KillSwitchActivationResult`: success, status, ordersCancelled array, featuresDisabled
+- `KillSwitchDeactivationResult`: success, status, featuresReEnabled, error
+- `KillSwitchEvent`: For history tracking (id, timestamp, action, triggeredBy, etc.)
+- `StoredKillSwitchState`: For persistence
+- Zod schemas for all types
+- Helper functions: isKillSwitchActive, isReadOnlyMode, canReEnable, getRemainingCooldownSeconds, formatKillSwitchState, formatReasonCategory, createInactiveStatus, generateStatusSummary, validateKillSwitchConfig
+
+### Service Implementation (src/services/kill-switch.ts):
+~600 lines implementing KillSwitchService class:
+- `activate(activatedBy, reason, reasonCategory)`: Puts system in read-only mode, optionally cancels all open orders, disables automation features, sets cooldown
+- `deactivate(confirmed)`: Re-enables system with cooldown check and confirmation requirement
+- `updateConfig(updates)`: Update kill switch configuration
+- `onStateChange(callback)`: Register callbacks for state changes
+- `getStoredState() / restoreFromState()`: State persistence
+- Full audit log integration (logs config_change events)
+- Standalone functions: `shouldBlockOperation()`, `getBlockedOperationMessage()`
+
+### API Endpoints (src/api/server.ts):
+6 new endpoints:
+- `GET /api/kill-switch` - Get current status
+- `POST /api/kill-switch/activate` - Activate kill switch
+- `POST /api/kill-switch/deactivate` - Deactivate (re-enable system)
+- `PUT /api/kill-switch/config` - Update configuration
+- `GET /api/kill-switch/history` - Get event history
+- `GET /api/kill-switch/check/:operation` - Check if operation is blocked
+
+### UI Component (src/ui/components/KillSwitchButton.tsx):
+~450 lines including:
+- Prominent red "KILL" button for activation
+- Pulsing "ACTIVE" indicator when engaged
+- Confirmation dialog for activation with reason input and cancel orders checkbox
+- Confirmation dialog for deactivation
+- Cooldown timer display
+- Compact mode for header placement
+- Full panel mode with status details
+- Demo mode support
+
+### App.tsx Integration:
+- Added kill switch state and handlers
+- Integrated KillSwitchButton into header
+- Demo mode simulates activation/deactivation locally
+- Fetches status on initial load
+
+### CSS Styles (src/ui/styles/index.css):
+~280 lines of new styles for:
+- Kill switch button variants (ready, active)
+- Pulse animation for active state
+- Blink animation for badge
+- Panel layouts (compact and full)
+- Dialog overlays and forms
+- Cooldown display
+- Error messages
+- Header controls layout
+
+### Files created:
+- src/types/kill-switch.ts
+- src/services/kill-switch.ts
+- src/services/kill-switch.test.ts (62 tests)
+- src/ui/components/KillSwitchButton.tsx
+
+### Files modified:
+- src/types/index.ts (added kill switch type exports)
+- src/services/index.ts (added kill switch service exports)
+- src/api/server.ts (added 6 kill switch endpoints, service integration)
+- src/ui/components/index.ts (added KillSwitchButton export)
+- src/ui/services/api.ts (added kill switch API methods and types)
+- src/ui/App.tsx (added state, handlers, and component integration)
+- src/ui/styles/index.css (added kill switch and header-controls styles)
+- prd.json (marked US-040 as complete)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1231 tests total, 62 new tests for kill switch)
+
+### Notes for next developer:
+- Kill switch is integrated into the dashboard header (compact mode)
+- Default configuration does NOT cancel orders on activation (user must explicitly opt-in)
+- Cooldown period is 30 seconds before system can be re-enabled
+- User confirmation is required to re-enable (configurable)
+- Auto-reprice and alert monitoring are disabled when kill switch is active
+- All activation/deactivation events are logged to audit trail
+- The `shouldBlockOperation()` function should be called before order submission/modification
+- For full kill switch panel (with status details), set `compact={false}` prop
+- Demo mode simulates activation/deactivation client-side
+- Remaining incomplete features: US-034 (Multi-leg spreads), US-035-037 (Research ingestion), US-038 (Scanner), US-039 (Performance attribution)

@@ -356,6 +356,75 @@ export const api = {
       method: 'DELETE',
     });
   },
+
+  // =========================================================================
+  // Kill Switch Endpoints (US-040)
+  // =========================================================================
+
+  /**
+   * Get kill switch status
+   */
+  async getKillSwitchStatus(): Promise<KillSwitchStatus> {
+    return fetchApi<KillSwitchStatus>('/api/kill-switch');
+  },
+
+  /**
+   * Activate kill switch
+   */
+  async activateKillSwitch(
+    reason?: string,
+    cancelOrders?: boolean,
+    reasonCategory?: string
+  ): Promise<KillSwitchActivationResult> {
+    return fetchApi<KillSwitchActivationResult>('/api/kill-switch/activate', {
+      method: 'POST',
+      body: JSON.stringify({ reason, cancelOrders, reasonCategory }),
+    });
+  },
+
+  /**
+   * Deactivate kill switch (re-enable system)
+   */
+  async deactivateKillSwitch(confirmed: boolean): Promise<KillSwitchDeactivationResult> {
+    return fetchApi<KillSwitchDeactivationResult>('/api/kill-switch/deactivate', {
+      method: 'POST',
+      body: JSON.stringify({ confirmed }),
+    });
+  },
+
+  /**
+   * Update kill switch configuration
+   */
+  async updateKillSwitchConfig(config: Partial<KillSwitchConfig>): Promise<{ config: KillSwitchConfig; status: KillSwitchStatus }> {
+    return fetchApi<{ config: KillSwitchConfig; status: KillSwitchStatus }>('/api/kill-switch/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  /**
+   * Get kill switch event history
+   */
+  async getKillSwitchHistory(): Promise<{ total: number; events: KillSwitchEvent[] }> {
+    return fetchApi<{ total: number; events: KillSwitchEvent[] }>('/api/kill-switch/history');
+  },
+
+  /**
+   * Check if an operation is blocked by kill switch
+   */
+  async checkKillSwitchBlock(operation: 'order_submit' | 'order_modify' | 'auto_reprice' | 'alert_action'): Promise<{
+    operation: string;
+    blocked: boolean;
+    message: string;
+    killSwitchActive: boolean;
+  }> {
+    return fetchApi<{
+      operation: string;
+      blocked: boolean;
+      message: string;
+      killSwitchActive: boolean;
+    }>(`/api/kill-switch/check/${operation}`);
+  },
 };
 
 // ============================================================================
@@ -506,6 +575,69 @@ export interface OrderCancelResponse {
   canceled: boolean;
   orderId: string;
   message: string;
+}
+
+// ============================================================================
+// Kill Switch Types
+// ============================================================================
+
+export interface KillSwitchConfig {
+  cancelOrdersOnActivation: boolean;
+  disableAutoRepriceOnActivation: boolean;
+  disableAlertsOnActivation: boolean;
+  reEnableCooldownSeconds: number;
+  requireConfirmationForReEnable: boolean;
+}
+
+export interface KillSwitchStatus {
+  state: 'active' | 'inactive';
+  readOnlyMode: boolean;
+  activatedAt?: string;
+  activatedBy?: 'user' | 'system' | 'automated';
+  reason?: string;
+  reasonCategory?: string;
+  ordersCancelled?: number;
+  cancelledOrderIds?: string[];
+  disabledFeatures?: string[];
+  canReEnableAt?: string;
+  config: KillSwitchConfig;
+}
+
+export interface KillSwitchActivationResult {
+  success: boolean;
+  status: KillSwitchStatus;
+  ordersCancelled: Array<{
+    orderId: string;
+    symbol: string;
+    side: string;
+    quantity: number;
+    success: boolean;
+    error?: string;
+  }>;
+  featuresDisabled: string[];
+  error?: string;
+  activatedAt: string;
+}
+
+export interface KillSwitchDeactivationResult {
+  success: boolean;
+  status: KillSwitchStatus;
+  featuresReEnabled: string[];
+  error?: string;
+  deactivatedAt: string;
+}
+
+export interface KillSwitchEvent {
+  id: string;
+  timestamp: string;
+  action: 'activated' | 'deactivated' | 'config_changed';
+  triggeredBy: 'user' | 'system' | 'automated';
+  reason?: string;
+  reasonCategory?: string;
+  ordersCancelled?: number;
+  featuresAffected?: string[];
+  previousState: 'active' | 'inactive';
+  newState: 'active' | 'inactive';
 }
 
 export default api;
