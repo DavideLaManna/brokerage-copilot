@@ -2218,3 +2218,64 @@ Created comprehensive emergency kill switch system for immediately stopping all 
 - TradeProposal schema was already multi-leg capable; this PR adds spread-aware risk calculation
 - Calendar spread risk is estimated conservatively (actual depends on IV)
 - Remaining incomplete features: US-035-037 (Research ingestion), US-038 (Scanner), US-039 (Performance attribution)
+
+## 2026-02-05 - US-035: Research ingestion pipeline - web/news (COMPLETED)
+
+### What was done:
+- Fixed existing TypeScript errors in partially-implemented research pipeline code
+- Created src/types/research.ts with comprehensive research note schema:
+  - ResearchSourceType (8 types: news, press_release, sec_filing, earnings, analyst, blog, social, other)
+  - NewsSource configuration with trust scores and rate limits
+  - ALLOWED_NEWS_SOURCES: Reuters, Bloomberg, SEC EDGAR, Business Wire, PR Newswire, Seeking Alpha, Yahoo Finance, MarketWatch
+  - ExtractedArticle, ArticleSummary, KeyDataPoint, ResearchNote, StoredResearchNote types
+  - Scraper and Summarizer config types
+  - Ingestion request/result types with batch support
+  - Helper functions: generateUrlHash() (SHA-256 deduplication), extractSymbolsFromText() ($TICKER and NASDAQ: patterns), identifySourceFromUrl(), countWords(), truncateToMaxWords(), createResearchNoteFromArticle()
+  - Zod schemas for runtime validation
+- Created src/services/web-scraper.ts:
+  - WebScraper class with domain-based rate limiting and retry logic
+  - Scrapes only allowed sources (rejects non-whitelisted URLs)
+  - Extracts headline (og:title, twitter:title, title tag, h1), body text (article tag, content classes, paragraphs), published date, authors
+  - scrapeMany() for batch processing with configurable concurrency
+- Created src/services/article-summarizer.ts:
+  - ArticleSummarizer class with LLM provider interface for dependency injection
+  - MockLLMProvider for testing and demo mode
+  - Generates structured summaries: shortSummary, keyTakeaways, sentiment (bullish/bearish/neutral/mixed), sentimentConfidence, keyDataPoints, timeHorizon
+  - Token-efficient truncation before sending to LLM
+  - summarizeMany() for batch processing
+- Created src/services/research-storage.ts:
+  - ResearchStorageService with AES-256-GCM encrypted persistence
+  - URL hash deduplication (save returns existing note if duplicate)
+  - Full CRUD operations with update support for symbols, tags, summary, flags
+  - Query with filters: symbols, sourceTypes, sourceIds, tags, searchQuery, sentiment, date range, unreadOnly, flaggedOnly, hasSummary
+  - Pagination with offset/limit and sorting
+  - Statistics: total notes, unread count, flagged count, symbol counts, source type counts
+- Created src/services/research-ingestion.ts:
+  - ResearchIngestionService orchestrating the full pipeline
+  - ingest(url) scrapes, deduplicates, optionally summarizes, and stores
+  - ingestBatch() for multiple URLs with concurrency control
+  - reIngest() for updating existing articles
+  - addSummaryToNote() for adding summaries to notes without them
+  - Passthrough methods for storage queries
+- Added comprehensive tests:
+  - src/types/research.test.ts (28 tests for types and helpers)
+  - src/services/web-scraper.test.ts (12 tests)
+  - src/services/article-summarizer.test.ts (22 tests)
+  - src/services/research-storage.test.ts (28 tests)
+  - src/services/research-ingestion.test.ts (19 tests)
+- Updated src/types/index.ts and src/services/index.ts with all new exports
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1383 tests total, 118 new tests added)
+
+### Notes for next developer:
+- US-035 is complete. The next priority incomplete feature is US-036 (Research ingestion - PDF filings)
+- The research pipeline is designed for extensibility:
+  - To add new news sources, add entries to ALLOWED_NEWS_SOURCES in src/types/research.ts
+  - To use a real LLM (e.g., Claude, GPT-4), implement the LLMProvider interface and pass to createArticleSummarizer()
+  - MockLLMProvider is used by default for testing and demo mode
+- The web scraper respects robots.txt (configurable) and implements per-domain rate limiting
+- Research notes are stored encrypted using AES-256-GCM (same pattern as other storage services)
+- The extractSymbolsFromText() function auto-extracts tickers from article content ($AAPL, NASDAQ: AAPL patterns)
+

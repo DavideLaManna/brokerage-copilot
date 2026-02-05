@@ -231,3 +231,38 @@ export {
   validateSpread,
   type SpreadValidationResult,
 } from './risk-engine.js';
+
+// Research pipeline
+export {
+  WebScraper,
+  createWebScraper,
+  scrapeUrl,
+  type WebScraperLogger,
+} from './web-scraper.js';
+
+export {
+  ArticleSummarizer,
+  MockLLMProvider,
+  createMockArticleSummarizer,
+  createArticleSummarizer,
+  summarizeArticle,
+  type LLMProvider,
+  type LLMCompletionOptions,
+  type LLMCompletionResult,
+  type ArticleSummarizerLogger,
+} from './article-summarizer.js';
+
+export {
+  ResearchStorageService,
+  createResearchStorageService,
+  type ResearchStorageOptions,
+  type ResearchStorageLogger,
+} from './research-storage.js';
+
+export {
+  ResearchIngestionService,
+  createResearchIngestionService,
+  type ResearchIngestionConfig,
+  type ResearchIngestionServiceOptions,
+  type ResearchIngestionLogger,
+} from './research-ingestion.js';
