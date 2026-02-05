@@ -266,3 +266,61 @@ export {
   type ResearchIngestionServiceOptions,
   type ResearchIngestionLogger,
 } from './research-ingestion.js';
+
+// PDF Filing Pipeline
+export {
+  PDFExtractor,
+  MockPDFExtractor,
+  createPDFExtractor,
+  createMockPDFExtractor,
+  extractPDFFromUrl,
+  extractPDFFromBuffer,
+  MockPDFParser,
+  type PDFExtractorLogger,
+  type PDFParser,
+} from './pdf-extractor.js';
+
+export {
+  DocumentChunker,
+  createDocumentChunker,
+  chunkPDFContent,
+  chunkFilingSection,
+  chunkText,
+  estimateChunkCount,
+  type ChunkerLogger,
+  type ChunkingOptions,
+} from './document-chunker.js';
+
+export {
+  FilingSummarizer,
+  createFilingSummarizer,
+  summarizeFilingSection,
+  generateFilingSummary,
+  MockFilingLLMProvider,
+  type FilingSummarizerLogger,
+  type SummarizationOptions,
+} from './filing-summarizer.js';
+
+export {
+  FactExtractor,
+  createFactExtractor,
+  extractFactsFromSection,
+  extractFactsFromContent,
+  MockFactExtractionLLMProvider,
+  DEFAULT_FACT_EXTRACTOR_CONFIG,
+  type FactExtractorLogger,
+  type FactExtractorConfig,
+  type ExtractionOptions,
+} from './fact-extractor.js';
+
+export {
+  PDFIngestionService,
+  createPDFIngestionService,
+  ingestPDFFiling,
+  ingestPDFFilingsBatch,
+  MockResearchNoteStorage,
+  DEFAULT_PDF_INGESTION_CONFIG,
+  type PDFIngestionLogger,
+  type PDFIngestionConfig,
+  type ResearchNoteStorage,
+} from './pdf-ingestion.js';

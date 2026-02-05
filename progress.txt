@@ -2279,3 +2279,93 @@ Created comprehensive emergency kill switch system for immediately stopping all 
 - Research notes are stored encrypted using AES-256-GCM (same pattern as other storage services)
 - The extractSymbolsFromText() function auto-extracts tickers from article content ($AAPL, NASDAQ: AAPL patterns)
 
+
+## 2026-02-05 - US-036: Research ingestion - PDF filings (COMPLETED)
+
+### What was done:
+- Created src/types/pdf-filing.ts with comprehensive PDF filing types:
+  - SECFilingType (16 types: 10-K, 10-Q, 8-K, 10-K/A, 10-Q/A, 8-K/A, 20-F, 6-K, DEF 14A, S-1, S-3, 4, 13F, 13D, 13G, other)
+  - FilingSectionType (14 types: business, risk_factors, properties, legal_proceedings, mda, financials, controls, exhibits, signature, cover_page, table_of_contents, executive_summary, forward_looking, other)
+  - FilingMetadata with accession number, CIK, tickers, filing date, period of report
+  - FilingSection with page numbers, word count, confidence score
+  - ExtractedPDFContent with sections, page texts, extraction metadata
+  - StructuredFact types (13 types: earnings_date, earnings_eps, earnings_revenue, guidance, dividend, buyback, acquisition, divestiture, debt, executive_change, legal_matter, regulatory, risk, other)
+  - FactCitation with page numbers, section type, quote
+  - SectionSummary and FilingSummary types
+  - PDFExtractorConfig, ChunkerConfig, FilingSummarizerConfig, FactExtractorConfig
+  - Helper functions: formatFilingType(), formatSectionType(), formatFactType(), determineFilingType(), extractAccessionNumber(), extractCIK(), isValidSECPDFUrl(), buildSECDocumentUrl(), validatePDFIngestionRequest(), getFilingSourceType(), getFilingImportance()
+  - Zod schemas for validation
+- Created src/services/pdf-extractor.ts:
+  - PDFExtractor class with PDF download and text extraction
+  - downloadPDF() with timeout and error handling
+  - parsePDF() with PDF header validation
+  - extractSections() detecting 14 section types via regex patterns (ITEM 1. BUSINESS, ITEM 1A. RISK FACTORS, etc.)
+  - buildPageTexts() for page-level text access
+  - extractMetadata() extracting accession number, CIK, company name from URL and content
+  - MockPDFParser for testing (generates realistic SEC filing content)
+  - MockPDFExtractor for testing without network calls
+- Created src/services/document-chunker.ts:
+  - DocumentChunker class for splitting long documents
+  - chunkContent() for ExtractedPDFContent with section-aware chunking
+  - chunkSection() for individual sections
+  - chunkByWords() with configurable overlap for context preservation
+  - mergeSmallChunks() for combining undersized chunks
+  - filterBySectionType() and getChunksForSection()
+  - getChunkingStats() for analytics
+  - Priority section ordering and skip list support
+- Created src/services/filing-summarizer.ts:
+  - FilingSummarizer class with LLM-based summarization
+  - Section-specific prompts for each FilingSectionType (business, risk_factors, mda, etc.)
+  - summarizeSection() generating SectionSummary with keyPoints, keyDataPoints, sentiment
+  - summarizeSections() for batch processing
+  - generateFilingSummary() creating FilingSummary with executive summary, highlights, risks, opportunities, material changes
+  - summarizeChunks() for handling very long sections
+  - MockFilingLLMProvider for testing (generates realistic summaries)
+- Created src/services/fact-extractor.ts:
+  - FactExtractor class with pattern-based fact extraction
+  - 13 StructuredFactType extractors: earnings, guidance, dividends, buybacks, M&A, debt, executive changes, risks
+  - extractFromSection() and extractFromContent()
+  - Pattern matching for monetary values ($410.5 billion), percentages (8%), dates
+  - Extracts numeric values, units (million/billion), currencies (USD)
+  - FactCitation with page numbers, section type, quote
+  - Confidence scoring for extracted facts
+  - deduplicateFacts() removes duplicate extractions
+  - filterByType(), filterByConfidence(), getForwardLookingFacts(), groupByType()
+  - getStats() for extraction analytics
+- Created src/services/pdf-ingestion.ts:
+  - PDFIngestionService orchestrating the full pipeline
+  - ingest(request) validates request, checks duplicates via URL hash, downloads/extracts PDF, chunks content, summarizes sections, extracts facts, stores as ResearchNote
+  - ingestBatch(requests) for multiple PDFs with concurrency control
+  - reProcess(noteId) for re-ingesting existing notes
+  - MockResearchNoteStorage for testing
+  - Configurable defaults for summary generation and fact extraction
+  - Step-by-step timing metrics in FilingProcessingResult
+- Updated src/types/index.ts with all new type exports
+- Updated src/services/index.ts with all new service exports
+- Added comprehensive tests (93 new tests in pdf-filing.test.ts):
+  - PDF filing types and helper functions tests
+  - PDFExtractor tests (extraction, section detection, metadata)
+  - DocumentChunker tests (chunking, merging, statistics)
+  - FilingSummarizer tests (section and filing summarization)
+  - FactExtractor tests (pattern extraction, filtering, deduplication)
+  - PDFIngestionService tests (single and batch ingestion, duplicates)
+  - MockResearchNoteStorage tests
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1476 tests total, 93 new tests added)
+
+### Notes for next developer:
+- US-036 is complete. The next priority incomplete features are:
+  - US-037 (Research retrieval for trade ideas)
+  - US-038 (Automated scanner for new candidates)
+  - US-039 (Performance attribution)
+- The PDF pipeline is designed for extensibility:
+  - To use a real PDF parser (e.g., pdf-parse), implement the PDFParser interface and pass to createPDFExtractor()
+  - To use a real LLM (e.g., Claude, GPT-4), implement the LLMProvider interface and pass to createFilingSummarizer()
+  - MockPDFParser and MockFilingLLMProvider are used by default for testing/demo
+- Section detection uses regex patterns that match common SEC filing formats (ITEM 1., ITEM 1A., etc.)
+- Fact extraction is pattern-based for common financial metrics; for more sophisticated extraction, integrate an LLM
+- The pipeline stores extracted data in ResearchNote format, compatible with the research-storage.ts service
+- Citation information (page numbers, section, quote) is preserved for all extracted facts
+- Use useMockExtractor: true when creating PDFIngestionService for testing to avoid network calls
