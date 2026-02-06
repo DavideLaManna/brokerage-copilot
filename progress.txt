@@ -2369,3 +2369,38 @@ Created comprehensive emergency kill switch system for immediately stopping all 
 - The pipeline stores extracted data in ResearchNote format, compatible with the research-storage.ts service
 - Citation information (page numbers, section, quote) is preserved for all extracted facts
 - Use useMockExtractor: true when creating PDFIngestionService for testing to avoid network calls
+
+
+## 2026-02-06 - US-037: Research retrieval for trade ideas (COMPLETED)
+
+### What was done:
+- Fixed failing test in src/tools/research-retrieval.ts by adding sortBy and sortOrder to ResearchSearchResult.request interface
+- Verified the comprehensive research retrieval MCP tool implementation:
+  - search_research(symbol, keywords) tool with full input validation via Zod schema
+  - SearchResearchInputSchema supporting: symbol filter (uppercase conversion), keywords array (full-text search), sourceTypes filter, sentiment filter, date range filters, flaggedOnly, hasSummary, pagination (limit/offset), sorting (publishedAt, ingestedAt, trustScore, wordCount)
+  - ResearchNoteSnapshot type for LLM consumption with all relevant fields
+  - ResearchSearchResult includes notes array, totalCount, hasMore, request parameters (including sortBy/sortOrder), summary statistics, dataTimestamp, dataSources
+  - researchNotesToDataSources() converts research notes to DataSource entries for TradeProposal.dataUsed field
+  - formatResearchCitations() generates numbered citation strings for trade proposal thesis
+  - Convenience functions: getResearch(), getResearchBySymbol(), getRecentResearch(), getResearchBySentiment()
+  - createSearchResearchTool() creates MCP tool definition with handler
+- All exports properly added to src/tools/index.ts
+- Vector search noted as optional P2 feature (not implemented)
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1525 tests total)
+
+### Notes for next developer:
+- US-037 is complete. The next priority incomplete features are:
+  - US-038 (Automated scanner for new candidates) - priority 38
+  - US-039 (Performance attribution) - priority 39
+- The research retrieval tool integrates with the research pipeline from US-035 and US-036:
+  - Use ResearchStorageService to store notes from web scraping or PDF ingestion
+  - Use createSearchResearchTool() to create an MCP tool for LLM agents
+  - Use researchNotesToDataSources() to include research in TradeProposal.dataUsed
+- To add vector search (P2 feature), consider integrating:
+  - A vector database (e.g., Pinecone, Weaviate, or pg_vector)
+  - Embedding generation using an LLM or specialized model
+  - Similarity search in addition to keyword search
+- The tool is designed for LLM agents to gather context before recommending trades

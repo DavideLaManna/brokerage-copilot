@@ -59,3 +59,20 @@ export {
   type ComputeTechnicalsInput,
   type TechnicalIndicatorsSnapshot,
 } from './technical-indicators.js';
+
+// Tools - Research Retrieval
+export {
+  createSearchResearchTool,
+  searchResearch,
+  getResearch,
+  getResearchBySymbol,
+  getRecentResearch,
+  getResearchBySentiment,
+  researchNotesToDataSources,
+  formatResearchCitations,
+  SearchResearchInputSchema,
+  type ResearchRetrievalToolContext,
+  type SearchResearchInput,
+  type ResearchNoteSnapshot,
+  type ResearchSearchResult,
+} from './research-retrieval.js';

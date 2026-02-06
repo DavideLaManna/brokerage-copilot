@@ -588,8 +588,8 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed: Created comprehensive research retrieval MCP tool (src/tools/research-retrieval.ts) for LLM agents to search and retrieve research notes when generating trade ideas. (1) search_research(symbol, keywords) tool with full input validation via Zod schema supporting: symbol filter (uppercase conversion), keywords array (full-text search in headline/body/summary), sourceTypes filter (news, sec_filing, earnings, analyst, etc.), sentiment filter (bullish/bearish/neutral/mixed), date range filters (publishedAfter/Before), flaggedOnly and hasSummary filters, pagination (limit/offset), sorting (publishedAt, ingestedAt, trustScore, wordCount) with asc/desc order. (2) ResearchNoteSnapshot type for LLM consumption with: id, headline, sourceName, sourceType, publishedAt, ingestedAt, url, symbols, trustScore, shortSummary, keyTakeaways, sentiment, sentimentConfidence, keyDataPoints, timeHorizon, tags, wordCount, isFlagged, userNotes. (3) ResearchSearchResult includes: notes array, totalCount, hasMore, request parameters, summary statistics (sourceTypeCounts, sentimentCounts, averageTrustScore, withSummaryCount, date range), dataTimestamp, dataSources. (4) researchNotesToDataSources() converts research notes to DataSource entries for TradeProposal.dataUsed field with proper sourceType mapping (news→news, sec_filing/analyst→research, earnings→earnings). (5) formatResearchCitations() generates numbered citation strings for trade proposal thesis. (6) Convenience functions: getResearch(), getResearchBySymbol(symbol, limit), getRecentResearch(limit), getResearchBySentiment(sentiment, symbol, limit). (7) createSearchResearchTool() creates MCP tool definition with comprehensive description and handler. (8) All exports added to src/tools/index.ts. Vector search noted as optional P2 feature. Added 49 comprehensive tests (1525 total). Typecheck passes."
     },
     {
       "id": "US-038",
