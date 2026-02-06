@@ -431,3 +431,46 @@ export {
   calculateOverallScore,
   getCandidateSummary,
 } from './candidate-scanner.js';
+
+// Performance Attribution types
+export type {
+  DTEBucket,
+  HoldDurationBucket,
+  CatalystCategory,
+  TradeOutcome,
+  ClosedTrade,
+  StoredClosedTrade,
+  PerformanceMetrics,
+  PerformanceBreakdown,
+  PerformanceAttribution,
+  PerformancePattern,
+  DrawdownInfo,
+  EquityCurvePoint,
+  ClosedTradeQueryOptions,
+  ClosedTradeQueryResult,
+  PerformanceAttributionOptions,
+} from './performance.js';
+
+export {
+  DTEBucketSchema,
+  HoldDurationBucketSchema,
+  CatalystCategorySchema,
+  TradeOutcomeSchema,
+  ClosedTradeSchema,
+  StoredClosedTradeSchema,
+  ClosedTradeQueryOptionsSchema,
+  PERFORMANCE_SCHEMA_VERSION,
+  getDTEBucket,
+  getHoldDurationBucket,
+  getTradeOutcome,
+  calculateHoldDays,
+  calculatePnLPercent,
+  formatDTEBucket,
+  formatHoldDurationBucket,
+  formatCatalystCategory,
+  formatTradeOutcome,
+  formatPerformanceMetrics,
+  createEmptyMetrics,
+  calculateMetrics,
+  validateClosedTrade,
+} from './performance.js';

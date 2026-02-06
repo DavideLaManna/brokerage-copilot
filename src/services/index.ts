@@ -333,3 +333,12 @@ export {
   type CandidateScannerLogger,
   type CandidateScannerServiceOptions,
 } from './candidate-scanner.js';
+
+// Performance Attribution
+export {
+  PerformanceAttributionService,
+  createPerformanceAttributionService,
+  createPerformanceAttributionServiceFromEnv,
+  type PerformanceAttributionServiceOptions,
+  type PerformanceAttributionLogger,
+} from './performance-attribution.js';

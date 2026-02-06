@@ -31,6 +31,9 @@ import { KillSwitchService, createKillSwitchService, shouldBlockOperation, getBl
 import type { KillSwitchStatus, KillSwitchActivationResult, KillSwitchDeactivationResult, KillSwitchConfig, KillSwitchReasonCategory, KillSwitchActivator } from '../types/kill-switch.js';
 import { CandidateScannerService, createCandidateScannerService } from '../services/candidate-scanner.js';
 import type { CandidateScannerConfig, CandidateScanResult, CandidateQueryOptions } from '../types/candidate-scanner.js';
+import { PerformanceAttributionService, createPerformanceAttributionService } from '../services/performance-attribution.js';
+import type { ClosedTradeQueryOptions, PerformanceAttributionOptions, CatalystCategory } from '../types/performance.js';
+import type { StrategyType } from '../types/trade-proposal.js';
 
 /**
  * API response wrapper for consistent response format
@@ -104,6 +107,7 @@ export class ApiServer {
   private alertProposalsService: AlertActionProposalsService | null = null;
   private killSwitchService: KillSwitchService | null = null;
   private scannerService: CandidateScannerService | null = null;
+  private performanceService: PerformanceAttributionService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
@@ -139,6 +143,13 @@ export class ApiServer {
    */
   setAuditLogService(service: AuditLogService): void {
     this.auditLogService = service;
+  }
+
+  /**
+   * Set the performance attribution service (can be called after construction)
+   */
+  setPerformanceService(service: PerformanceAttributionService): void {
+    this.performanceService = service;
   }
 
   /**
@@ -1982,6 +1993,273 @@ export class ApiServer {
         next(error);
       }
     });
+
+    // =========================================================================
+    // Performance Attribution Endpoints
+    // =========================================================================
+
+    // Get performance attribution report
+    this.app.get('/api/performance', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const options: PerformanceAttributionOptions = {};
+
+        if (req.query.startDate) {
+          options.startDate = new Date(req.query.startDate as string);
+        }
+        if (req.query.endDate) {
+          options.endDate = new Date(req.query.endDate as string);
+        }
+        if (req.query.topTradesCount) {
+          options.topTradesCount = parseInt(req.query.topTradesCount as string, 10);
+        }
+        if (req.query.underlyings) {
+          options.underlyings = (req.query.underlyings as string).split(',');
+        }
+        if (req.query.strategyTypes) {
+          options.strategyTypes = (req.query.strategyTypes as string).split(',') as StrategyType[];
+        }
+
+        const attribution = performanceService.getPerformanceAttribution(accountId, options);
+        const drawdown = performanceService.getDrawdownInfo(accountId);
+        const equityCurve = performanceService.getEquityCurve(accountId);
+
+        res.json(this.wrapResponse({
+          attribution,
+          drawdown,
+          equityCurve,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get performance metrics only
+    this.app.get('/api/performance/metrics', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const options: ClosedTradeQueryOptions = {};
+
+        if (req.query.startDate) {
+          options.startDate = new Date(req.query.startDate as string);
+        }
+        if (req.query.endDate) {
+          options.endDate = new Date(req.query.endDate as string);
+        }
+        if (req.query.underlyings) {
+          options.underlyings = (req.query.underlyings as string).split(',');
+        }
+        if (req.query.strategyTypes) {
+          options.strategyTypes = (req.query.strategyTypes as string).split(',') as StrategyType[];
+        }
+
+        const metrics = performanceService.getMetrics(accountId, options);
+        res.json(this.wrapResponse(metrics));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get closed trades
+    this.app.get('/api/performance/trades', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const options: ClosedTradeQueryOptions = {};
+
+        if (req.query.startDate) {
+          options.startDate = new Date(req.query.startDate as string);
+        }
+        if (req.query.endDate) {
+          options.endDate = new Date(req.query.endDate as string);
+        }
+        if (req.query.underlyings) {
+          options.underlyings = (req.query.underlyings as string).split(',');
+        }
+        if (req.query.strategyTypes) {
+          options.strategyTypes = (req.query.strategyTypes as string).split(',') as StrategyType[];
+        }
+        if (req.query.catalysts) {
+          options.catalysts = (req.query.catalysts as string).split(',') as CatalystCategory[];
+        }
+        if (req.query.outcomes) {
+          options.outcomes = (req.query.outcomes as string).split(',') as ('win' | 'loss' | 'breakeven')[];
+        }
+        if (req.query.sortBy) {
+          options.sortBy = req.query.sortBy as ClosedTradeQueryOptions['sortBy'];
+        }
+        if (req.query.sortOrder) {
+          options.sortOrder = req.query.sortOrder as 'asc' | 'desc';
+        }
+        if (req.query.limit) {
+          options.limit = parseInt(req.query.limit as string, 10);
+        }
+        if (req.query.offset) {
+          options.offset = parseInt(req.query.offset as string, 10);
+        }
+
+        const result = performanceService.query(accountId, options);
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get a specific trade
+    this.app.get('/api/performance/trades/:tradeId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+        const tradeId = req.params.tradeId as string;
+
+        const trade = performanceService.getTrade(accountId, tradeId);
+        if (!trade) {
+          res.status(404).json(this.wrapResponse(null, 'Trade not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(trade));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Record a new closed trade
+    this.app.post('/api/performance/trades', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const trade = await performanceService.recordTrade({
+          accountId,
+          underlying: req.body.underlying,
+          strategyType: req.body.strategyType,
+          dteAtEntry: req.body.dteAtEntry,
+          catalyst: req.body.catalyst,
+          contracts: req.body.contracts,
+          entryDate: new Date(req.body.entryDate),
+          entryPrice: req.body.entryPrice,
+          entryCost: req.body.entryCost,
+          exitDate: new Date(req.body.exitDate),
+          exitPrice: req.body.exitPrice,
+          exitProceeds: req.body.exitProceeds,
+          commission: req.body.commission,
+          fees: req.body.fees,
+          confidence: req.body.confidence,
+          proposalId: req.body.proposalId,
+          entryOrderIds: req.body.entryOrderIds,
+          exitOrderIds: req.body.exitOrderIds,
+          notes: req.body.notes,
+          tags: req.body.tags,
+        });
+
+        res.status(201).json(this.wrapResponse(trade));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Update a trade
+    this.app.put('/api/performance/trades/:tradeId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+        const tradeId = req.params.tradeId as string;
+
+        const updates: {
+          notes?: string;
+          tags?: string[];
+          catalyst?: CatalystCategory;
+          confidence?: 'low' | 'medium' | 'high';
+        } = {};
+
+        if (req.body.notes !== undefined) updates.notes = req.body.notes;
+        if (req.body.tags !== undefined) updates.tags = req.body.tags;
+        if (req.body.catalyst !== undefined) updates.catalyst = req.body.catalyst;
+        if (req.body.confidence !== undefined) updates.confidence = req.body.confidence;
+
+        const trade = await performanceService.updateTrade(accountId, tradeId, updates);
+        if (!trade) {
+          res.status(404).json(this.wrapResponse(null, 'Trade not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(trade));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Delete a trade
+    this.app.delete('/api/performance/trades/:tradeId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+        const tradeId = req.params.tradeId as string;
+
+        const deleted = await performanceService.deleteTrade(accountId, tradeId);
+        if (!deleted) {
+          res.status(404).json(this.wrapResponse(null, 'Trade not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse({ deleted: true }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get statistics
+    this.app.get('/api/performance/statistics', async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const statistics = performanceService.getStatistics(accountId);
+        res.json(this.wrapResponse(statistics));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get drawdown info
+    this.app.get('/api/performance/drawdown', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const startingValue = req.query.startingValue
+          ? parseFloat(req.query.startingValue as string)
+          : 100000;
+
+        const drawdown = performanceService.getDrawdownInfo(accountId, startingValue);
+        res.json(this.wrapResponse(drawdown));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get equity curve
+    this.app.get('/api/performance/equity-curve', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const performanceService = this.getPerformanceService();
+        const accountId = this.currentBrokerType;
+
+        const startingValue = req.query.startingValue
+          ? parseFloat(req.query.startingValue as string)
+          : 100000;
+
+        const equityCurve = performanceService.getEquityCurve(accountId, startingValue);
+        res.json(this.wrapResponse(equityCurve));
+      } catch (error) {
+        next(error);
+      }
+    });
   }
 
   /**
@@ -2141,6 +2419,36 @@ export class ApiServer {
       }
     }
     return this.killSwitchService;
+  }
+
+  /**
+   * Get or create the performance attribution service
+   */
+  private getPerformanceService(): PerformanceAttributionService {
+    if (!this.performanceService) {
+      const accountId = this.currentBrokerType;
+      const masterPassword = process.env.SECRETS_MASTER_PASSWORD || 'default-dev-password-12345';
+
+      this.performanceService = createPerformanceAttributionService(
+        {
+          masterPassword,
+          dataDir: '.config/performance',
+          minPatternSampleSize: 5,
+          breakevenThreshold: 1,
+        },
+        {
+          info: (msg, data) => console.log(`[Performance] ${msg}`, data ? JSON.stringify(data) : ''),
+          warn: (msg, data) => console.warn(`[Performance] ${msg}`, data ? JSON.stringify(data) : ''),
+          error: (msg, data) => console.error(`[Performance] ${msg}`, data ? JSON.stringify(data) : ''),
+        }
+      );
+
+      // Initialize the service
+      this.performanceService.initialize().catch((err) => {
+        console.error('[Performance] Failed to initialize:', err);
+      });
+    }
+    return this.performanceService;
   }
 
   /**
