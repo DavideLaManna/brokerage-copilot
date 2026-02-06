@@ -29,6 +29,8 @@ import { MarketDataService, createMarketDataService } from '../services/market-d
 import { AlertActionProposalsService, createAlertActionProposalsService, type AlertWithProposals, type AlertProposalResult } from '../services/alert-action-proposals.js';
 import { KillSwitchService, createKillSwitchService, shouldBlockOperation, getBlockedOperationMessage } from '../services/kill-switch.js';
 import type { KillSwitchStatus, KillSwitchActivationResult, KillSwitchDeactivationResult, KillSwitchConfig, KillSwitchReasonCategory, KillSwitchActivator } from '../types/kill-switch.js';
+import { CandidateScannerService, createCandidateScannerService } from '../services/candidate-scanner.js';
+import type { CandidateScannerConfig, CandidateScanResult, CandidateQueryOptions } from '../types/candidate-scanner.js';
 
 /**
  * API response wrapper for consistent response format
@@ -101,6 +103,7 @@ export class ApiServer {
   private alertService: AlertMonitorService | null = null;
   private alertProposalsService: AlertActionProposalsService | null = null;
   private killSwitchService: KillSwitchService | null = null;
+  private scannerService: CandidateScannerService | null = null;
   private port: number;
   private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
 
@@ -1738,6 +1741,247 @@ export class ApiServer {
         killSwitchActive: status.state === 'active',
       }));
     });
+
+    // ===========================================================================
+    // Candidate Scanner Endpoints
+    // ===========================================================================
+
+    // Get scanner status and statistics
+    this.app.get('/api/scanner/status', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const stats = scannerService.getStatistics();
+        const config = scannerService.getConfig();
+        const isPolling = scannerService.isPollingActive();
+
+        res.json(this.wrapResponse({
+          stats,
+          config,
+          isPolling,
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Run a scan (on-demand)
+    this.app.post('/api/scanner/scan', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // Check kill switch
+        const killSwitchService = this.getKillSwitchService();
+        const killStatus = killSwitchService.getStatus();
+        if (shouldBlockOperation(killStatus, 'order_submit')) {
+          res.status(403).json(this.wrapResponse(null, getBlockedOperationMessage(killStatus, 'order_submit')));
+          return;
+        }
+
+        const scannerService = this.getScannerService();
+        const { symbols } = req.body as { symbols?: string[] };
+
+        const result = await scannerService.scan(symbols);
+
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Start polling
+    this.app.post('/api/scanner/polling/start', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        scannerService.startPolling();
+
+        res.json(this.wrapResponse({
+          isPolling: true,
+          message: 'Scanner polling started',
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Stop polling
+    this.app.post('/api/scanner/polling/stop', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        scannerService.stopPolling();
+
+        res.json(this.wrapResponse({
+          isPolling: false,
+          message: 'Scanner polling stopped',
+        }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get all candidates
+    this.app.get('/api/scanner/candidates', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+
+        // Parse query parameters
+        const queryOptions: CandidateQueryOptions = {};
+
+        if (req.query.symbols) {
+          queryOptions.symbols = (req.query.symbols as string).split(',');
+        }
+
+        if (req.query.status) {
+          queryOptions.status = (req.query.status as string).split(',') as Array<'new' | 'viewed' | 'dismissed' | 'actioned'>;
+        }
+
+        if (req.query.minScore) {
+          queryOptions.minScore = parseInt(req.query.minScore as string, 10);
+        }
+
+        if (req.query.sortBy) {
+          queryOptions.sortBy = req.query.sortBy as 'score' | 'generatedAt' | 'symbol';
+        }
+
+        if (req.query.sortOrder) {
+          queryOptions.sortOrder = req.query.sortOrder as 'asc' | 'desc';
+        }
+
+        if (req.query.limit) {
+          queryOptions.limit = parseInt(req.query.limit as string, 10);
+        }
+
+        if (req.query.offset) {
+          queryOptions.offset = parseInt(req.query.offset as string, 10);
+        }
+
+        const result = scannerService.queryCandidates(queryOptions);
+
+        res.json(this.wrapResponse(result));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Get a single candidate
+    this.app.get('/api/scanner/candidates/:candidateId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const candidateId = req.params.candidateId as string;
+
+        const candidate = scannerService.getCandidate(candidateId);
+
+        if (!candidate) {
+          res.status(404).json(this.wrapResponse(null, 'Candidate not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(candidate));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Mark candidate as viewed
+    this.app.post('/api/scanner/candidates/:candidateId/view', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const candidateId = req.params.candidateId as string;
+
+        const candidate = await scannerService.markAsViewed(candidateId);
+
+        if (!candidate) {
+          res.status(404).json(this.wrapResponse(null, 'Candidate not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(candidate));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Dismiss a candidate
+    this.app.post('/api/scanner/candidates/:candidateId/dismiss', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const candidateId = req.params.candidateId as string;
+        const { reason } = req.body as { reason?: string };
+
+        const candidate = await scannerService.dismissCandidate(candidateId, reason);
+
+        if (!candidate) {
+          res.status(404).json(this.wrapResponse(null, 'Candidate not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(candidate));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Mark candidate as actioned
+    this.app.post('/api/scanner/candidates/:candidateId/action', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const candidateId = req.params.candidateId as string;
+
+        const candidate = await scannerService.markAsActioned(candidateId);
+
+        if (!candidate) {
+          res.status(404).json(this.wrapResponse(null, 'Candidate not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse(candidate));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Delete a candidate
+    this.app.delete('/api/scanner/candidates/:candidateId', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const candidateId = req.params.candidateId as string;
+
+        const deleted = await scannerService.deleteCandidate(candidateId);
+
+        if (!deleted) {
+          res.status(404).json(this.wrapResponse(null, 'Candidate not found'));
+          return;
+        }
+
+        res.json(this.wrapResponse({ deleted: true, candidateId }));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Update scanner configuration
+    this.app.put('/api/scanner/config', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        const updates = req.body as Partial<CandidateScannerConfig>;
+
+        scannerService.updateConfig(updates);
+        const config = scannerService.getConfig();
+
+        res.json(this.wrapResponse(config));
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    // Clear all candidates
+    this.app.delete('/api/scanner/candidates', async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const scannerService = this.getScannerService();
+        await scannerService.clearCandidates();
+
+        res.json(this.wrapResponse({ cleared: true }));
+      } catch (error) {
+        next(error);
+      }
+    });
   }
 
   /**
@@ -1829,6 +2073,45 @@ export class ApiServer {
       );
     }
     return this.alertProposalsService;
+  }
+
+  /**
+   * Get or create the scanner service
+   */
+  private getScannerService(): CandidateScannerService {
+    if (!this.scannerService) {
+      const accountId = this.currentBrokerType;
+      const adapter = this.getAdapterOrThrow();
+
+      // Create market data service
+      const marketDataService = createMarketDataService(adapter, {
+        optionChainTtlMs: 10 * 60 * 1000, // 10 minutes
+        quoteTtlMs: 60 * 1000, // 1 minute
+        historicalBarsTtlMs: 5 * 60 * 1000, // 5 minutes
+      });
+
+      this.scannerService = createCandidateScannerService(
+        adapter,
+        marketDataService,
+        {
+          accountId,
+          logger: {
+            info: (msg, data) => console.log(`[Scanner] ${msg}`, data),
+            warn: (msg, data) => console.warn(`[Scanner] ${msg}`, data),
+            error: (msg, data) => console.error(`[Scanner] ${msg}`, data),
+          },
+        },
+        undefined, // researchStorage - would be injected if available
+        this.proposalService ?? undefined,
+        this.auditLogService ?? undefined
+      );
+
+      // Initialize the service
+      this.scannerService.initialize().catch((err) => {
+        console.error('[Scanner] Failed to initialize:', err);
+      });
+    }
+    return this.scannerService;
   }
 
   /**

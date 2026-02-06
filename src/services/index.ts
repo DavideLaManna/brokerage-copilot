@@ -324,3 +324,12 @@ export {
   type PDFIngestionConfig,
   type ResearchNoteStorage,
 } from './pdf-ingestion.js';
+
+// Candidate Scanner
+export {
+  CandidateScannerService,
+  createCandidateScannerService,
+  evaluateSymbolForCandidates,
+  type CandidateScannerLogger,
+  type CandidateScannerServiceOptions,
+} from './candidate-scanner.js';

@@ -391,3 +391,43 @@ export {
   getFilingSourceType,
   getFilingImportance,
 } from './pdf-filing.js';
+
+// Candidate Scanner types
+export type {
+  TechnicalTriggerType,
+  ResearchTriggerType,
+  ScannerTriggerType,
+  ScannerFilters,
+  CandidateScannerConfig,
+  CandidateScoreBreakdown,
+  CandidateTrigger,
+  TradeCandidate,
+  ResearchNoteReference,
+  StoredTradeCandidate,
+  CandidateScanResult,
+  CandidateQueryOptions,
+  CandidateQueryResult,
+} from './candidate-scanner.js';
+
+export {
+  ScannerFiltersSchema,
+  CandidateScannerConfigSchema,
+  CandidateTriggerSchema,
+  CandidateScoreBreakdownSchema,
+  ResearchNoteReferenceSchema,
+  TradeCandidateSchema,
+  StoredTradeCandidateSchema,
+  DEFAULT_SCANNER_FILTERS,
+  DEFAULT_SCANNER_CONFIG,
+  CANDIDATE_SCANNER_SCHEMA_VERSION,
+  formatTriggerType,
+  formatCandidateStatus,
+  getTriggerStrengthClass,
+  isBullishTrigger,
+  isBearishTrigger,
+  getSuggestedDirection,
+  validateScannerConfig,
+  createResearchNoteReference,
+  calculateOverallScore,
+  getCandidateSummary,
+} from './candidate-scanner.js';

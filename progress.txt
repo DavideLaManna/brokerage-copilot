@@ -2404,3 +2404,67 @@ Created comprehensive emergency kill switch system for immediately stopping all 
   - Embedding generation using an LLM or specialized model
   - Similarity search in addition to keyword search
 - The tool is designed for LLM agents to gather context before recommending trades
+
+
+## 2026-02-06 - US-038: Automated scanner for new candidates (COMPLETED)
+
+### What was done:
+- Created comprehensive automated scanner for identifying trade candidates
+- src/types/candidate-scanner.ts defines complete schema:
+  - TechnicalTriggerType: 8 types (rsi_oversold, rsi_overbought, golden_cross, death_cross, price_above_ma, price_below_ma, high_volatility, low_volatility)
+  - ResearchTriggerType: 4 types (bullish_news, bearish_news, earnings_upcoming, catalyst_present)
+  - ScannerFilters with RSI thresholds, MA crossovers, volatility, news lookback, DTE range, liquidity minimums, IV rank
+  - CandidateScannerConfig for symbols, filters, polling interval, max candidates, min score, allowed strategies
+  - TradeCandidate with id, symbol, price, triggers, technicals, research context, score breakdown, suggested strategy, proposal
+  - StoredTradeCandidate with status (new/viewed/dismissed/actioned)
+  - Zod schemas for all types with validation
+  - Helper functions: formatTriggerType(), formatCandidateStatus(), isBullishTrigger(), isBearishTrigger(), getSuggestedDirection(), validateScannerConfig(), calculateOverallScore(), getCandidateSummary()
+- src/services/candidate-scanner.ts implements CandidateScannerService class:
+  - scan() evaluates symbols against configured filters (RSI, MA crossovers, volatility, news sentiment)
+  - Generates scored candidates with breakdowns (technical 40%, research 30%, liquidity 20%, IV rank 10%)
+  - Creates preliminary TradeProposals for top candidates
+  - startPolling()/stopPolling() for scheduled scanning
+  - Candidate management: markAsViewed, dismissCandidate, markAsActioned, deleteCandidate
+  - queryCandidates() with filters/sorting/pagination
+  - getStatistics() for scanner stats
+  - Encrypted persistence using AES-256-GCM
+  - Standalone evaluateSymbolForCandidates() function for direct evaluation
+- src/ui/components/CandidatesPanel.tsx UI component:
+  - Stats summary (total, new, avg score, last scan)
+  - Filters (status, sort by score/time/symbol)
+  - Expandable candidate cards with symbol/price/score/strategy/status
+  - Technical analysis display (trend, RSI, ATR, signals)
+  - Triggers list with strength badges (weak/moderate/strong)
+  - Score breakdown visualization (progress bars for technical/research/liquidity)
+  - Research context section with sentiment badges
+  - Strategy rationale and warnings sections
+  - Action buttons (Create Proposal, Dismiss) with dismiss dialog
+- API endpoints in server.ts:
+  - GET /api/scanner/status - stats, config, polling state
+  - POST /api/scanner/scan - on-demand scan with kill switch check
+  - POST /api/scanner/polling/start and /stop
+  - GET /api/scanner/candidates - query with filters
+  - GET /api/scanner/candidates/:id - single candidate
+  - POST /api/scanner/candidates/:id/view, /dismiss, /action
+  - DELETE /api/scanner/candidates/:id
+  - PUT /api/scanner/config - update configuration
+  - DELETE /api/scanner/candidates - clear all
+- Added exports to src/types/index.ts and src/services/index.ts
+- Created comprehensive test suites:
+  - src/types/candidate-scanner.test.ts - 51 tests for types and helpers
+  - src/services/candidate-scanner.test.ts - 37 tests for service
+
+### Verification:
+- `npm run typecheck` passes
+- `npm run test` passes (1613 tests total, 88 new tests)
+
+### Notes for next developer:
+- US-039 (Performance attribution) is the next feature to implement
+- The CandidatesPanel component is ready but needs to be integrated into App.tsx dashboard
+- The scanner service lazily creates MarketDataService when needed
+- Scanner supports both polling (scheduled) and on-demand scanning
+- Kill switch integration blocks scans when active
+- Research storage integration is optional - scanner works without it
+- Score calculation uses weighted formula: 40% technical + 30% research + 20% liquidity + 10% IV rank
+- Candidates are persisted with AES-256-GCM encryption per account
+
