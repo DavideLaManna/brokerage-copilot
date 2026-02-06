@@ -253,6 +253,13 @@ export {
 } from './article-summarizer.js';
 
 export {
+  OpenAIProvider,
+  AnthropicProvider,
+  createLLMProviderFromEnv,
+  getLLMProviderName,
+} from './llm-providers.js';
+
+export {
   ResearchStorageService,
   createResearchStorageService,
   type ResearchStorageOptions,

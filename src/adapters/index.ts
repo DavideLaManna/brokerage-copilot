@@ -19,8 +19,13 @@ export {
 // Tradier adapter
 export { TradierAdapter, createTradierAdapter } from './tradier/index.js';
 
-// Register Tradier adapter with factory
+// Alpaca adapter
+export { AlpacaAdapter, createAlpacaAdapter } from './alpaca/index.js';
+
+// Register adapters with factory
 import { registerBrokerAdapter } from './broker-factory.js';
 import { createTradierAdapter } from './tradier/index.js';
+import { createAlpacaAdapter } from './alpaca/index.js';
 
 registerBrokerAdapter('tradier', createTradierAdapter);
+registerBrokerAdapter('alpaca', createAlpacaAdapter);

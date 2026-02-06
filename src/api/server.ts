@@ -109,7 +109,7 @@ export class ApiServer {
   private scannerService: CandidateScannerService | null = null;
   private performanceService: PerformanceAttributionService | null = null;
   private port: number;
-  private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = 'tradier';
+  private currentBrokerType: 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr' = (process.env.BROKER_PROVIDER as 'alpaca' | 'tradier' | 'tastytrade' | 'ibkr') || 'alpaca';
 
   constructor(connectionService: BrokerConnectionService, port: number = 3001, submissionStore?: OrderSubmissionStore, proposalService?: TradeProposalService, auditLogService?: AuditLogService) {
     this.app = express();
